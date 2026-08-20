@@ -2,75 +2,57 @@
 
 ## Customer need
 
-The customer uses JFrog's Bamboo generic resolve task to download files from Artifactory into a build workspace. Active patterns/file specs, properties, build/project/module selectors, destination layout, flat behavior, retries, parallelism, and downstream outputs are not known.
+The customer resolves and downloads files from Artifactory into the Windows build workspace. Harness must support the active JFrog file specs or patterns, properties, build/project/module selectors, destination layout, retries, parallelism, private CA, and no-match behavior.
 
-The required outcome is authenticated deterministic resolution with JFrog file-spec semantics.
+## How Bamboo handles it
 
-## What Bamboo provides
+JFrog's Bamboo task runs on the selected agent, authenticates to Artifactory, resolves configured patterns or a file spec, downloads matching files into the workspace, and returns the transfer result to Bamboo.
 
-JFrog's task resolves configured patterns or a file spec against Artifactory, applies repository and property/build selectors, downloads matching files, and reports failure through Bamboo. JFrog's plugin owns authentication and repository semantics around the transfer.
-
-## Harness today
-
-`drone-artifactory` already has a `download` command that accepts an inline spec or spec path plus URL, credentials, build name/number, module, and project. Windows Dockerfiles and PEM CA settings exist.
-
-At the reviewed commit, download command construction does not map the top-level `retries` or `threads` inputs even though those fields exist in the plugin settings. RT command paths also bypass `enable_proxy`, validation can allow empty command/tool success, and no structured download outputs are written.
-
-## Gap
-
-The gap is a hardened, supported Windows release with the customer's exact file-spec behavior, not a new downloader implementation. Retry/thread promises must match code and the selected JFrog CLI contract.
-
-## Recommended approach
-
-Recommendation: repair and qualify the existing `drone-artifactory` download path.
-
-Add strict requirement for exactly one inline spec or spec path, validate command and URL/auth, map confirmed retry/parallel flags, apply proxy consistently, preserve PEM/private CA behavior, return clear no-match/malformed-spec errors, and expose deterministic outputs where the JFrog CLI can provide them. Do not infer a file count by parsing unstable human logs unless the CLI supplies a machine-readable summary.
-
-## POC experience
-
-Proposed plugin inputs, not final Harness YAML:
-
-```yaml
-command: download
-url: https://company.jfrog.io/artifactory
-accessTokenSecret: jfrog-token
-specPath: .harness/download-spec.json
-buildName: upstream-build
-buildNumber: "1042"
-project: product
-retries: 3
-threads: 4
+```text
+JFrog file spec / selector
+-> Bamboo Artifactory task authenticates
+-> matching files downloaded to agent workspace
+-> success or failure returned to Bamboo
 ```
 
-The POC uses one customer file spec, a test repository, and the target Windows LTSC node.
+## Harness implementation
 
-## Productized direction
+Recommendation: repair the `download` command in the existing Harness Artifactory plugin and publish it in the Harness-maintained Windows Artifactory utility image.
 
-Release the repaired command in the same signed Artifactory plugin image and support matrix as Maven/Gradle. Document exact JFrog CLI flag mappings and whether summary outputs are stable. Keep repository transfer and toolchain runtimes separate.
+The current code already accepts an inline spec or spec path, Artifactory URL, credentials, build name/number, project, and module. Harness needs to:
 
-## Discovery required
+- require exactly one valid inline spec or spec path;
+- reject invalid commands, missing URL, or missing authentication clearly;
+- apply proxy and private CA settings consistently;
+- map confirmed retry and thread inputs to the JFrog CLI;
+- handle zero matches and malformed specs according to explicit policy;
+- emit stable machine-readable outputs only when the JFrog CLI provides them;
+- add Windows LTSC tests, signed image publication, and release ownership.
 
-- Which inline/file specs, source patterns, properties, build/project/module selectors, and destination rules are active?
-- Are retry, parallelism, no-match, checksum, or downstream outputs POC requirements?
-- Which JFrog authentication, proxy, CA, and CLI/server versions must be qualified?
+```text
+Harness Artifactory Download Plugin
+-> Harness Windows Artifactory utility image
+-> validated JFrog file spec
+-> JFrog CLI download
+-> files in workspace + Harness outputs
+```
 
-## Validation
+No Java, Node, or database runtime belongs in this download image. It contains only the plugin launcher, pinned JFrog CLI, certificates needed by the image, and standard Windows utility dependencies.
 
-Verify inline and file specs, one/many/no matches, properties and build selectors, flat/preserve layout, Windows paths and spaces, checksum behavior, retryable and permanent errors, parallel download, malformed JSON, bad credentials, proxy/private CA, cancellation, output accuracy, and secret masking. Compare downloaded paths and content digests with Bamboo.
+## What we still need to confirm
 
-## Effort and ownership
+- Which file specs, patterns, properties, and build/project/module selectors are active?
+- What destination, flat/preserve-layout, no-match, retry, and parallel behavior is required?
+- Which JFrog version, authentication, proxy/private CA, and test tenant will be used?
 
-- Included in the 1 to 2 week Artifactory core repair workstream.
-- Likely ownership: CI + HAR.
+## Customer position
 
-## What we can tell the customer
-
-- The existing Harness/Drone Artifactory code already implements the core generic download path on Windows.
-- Known validation, proxy, retry/thread, output, and release gaps must be fixed before a supported POC.
-- One exported file spec is needed to prove equivalent selection and layout.
+- Harness already has the core Artifactory download implementation.
+- Harness will repair and maintain the Windows plugin image rather than create another downloader.
+- One exported customer file spec is required to prove identical selection and layout.
 
 ## Sources
 
 - [JFrog Bamboo Artifactory plugin](https://docs.jfrog.com/integrations/docs/bamboo-artifactory-plug-in)
-- [`drone-artifactory` download example](https://github.com/drone-plugins/drone-artifactory/blob/c5db420e97e7c23ce3723aac30deae5b3a714c1e/docs/DOWNLOAD_README.md)
-- [`drone-artifactory` source at `c5db420e97e7c23ce3723aac30deae5b3a714c1e`](https://github.com/drone-plugins/drone-artifactory/tree/c5db420e97e7c23ce3723aac30deae5b3a714c1e)
+- [`drone-artifactory` download documentation](https://github.com/drone-plugins/drone-artifactory/blob/master/docs/DOWNLOAD_README.md)
+- [`drone-artifactory`](https://github.com/drone-plugins/drone-artifactory)

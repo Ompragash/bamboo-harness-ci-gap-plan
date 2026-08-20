@@ -2,116 +2,63 @@
 
 ## Customer need
 
-The customer needs Maven builds on Windows across JDK 7, 8, 11, 17, and 21. The inventory says all Maven versions, but no active Maven/JDK pairing, distribution, wrapper use, goal set, or settings configuration has been exported yet.
+The customer runs Maven builds on Windows using JDK 7, 8, 11, 17, and 21. Harness must provide the same structured build experience on Kubernetes Windows worker nodes, where every step starts in a Windows container.
 
-The required outcome is not only that `mvn` starts. Teams need a predictable way to select Java and Maven, choose a POM and working directory, pass goals and environment, use corporate repositories, cache dependencies, publish reports, and understand which legacy combinations Harness supports.
+The Maven task must support the selected Java profile, Maven Wrapper or Harness-supported Maven, POM path, goals, profiles, arguments, `MAVEN_OPTS`, working directory, environment variables, and test report paths.
 
-## What Bamboo provides
+## How Bamboo handles it
 
-Bamboo's native Maven task selects installed Maven and JDK capabilities. Those selections become agent requirements. It accepts goals and profiles, POM override, environment and `MAVEN_OPTS`, working subdirectory, and standard or custom JUnit result patterns. It can use the Maven return code rather than its legacy log parser. Maven local-repository isolation is configured on the Maven executable capability.
+Bamboo relies on long-lived Windows agents. An administrator installs JDK and Maven versions and registers them as Bamboo capabilities. The Maven task adds agent requirements, so Bamboo schedules the job on an agent that already has the selected JDK and Maven.
+
+The task then turns POM, goals, profiles, environment, working directory, and report settings into the Maven invocation. Bamboo does not normally install Java or Maven for every build.
 
 ```text
-Bamboo task
--> agent with selected Maven and JDK capabilities
--> POM, goals, environment, working directory
--> Maven build and optional JUnit results
+Bamboo selects Windows agent with JDK + Maven already installed
+-> Maven task receives POM, goals, profiles, and options
+-> installed Maven runs
+-> exit status and test reports return to Bamboo
 ```
 
-Bamboo does not prove that every replacement must dynamically download Maven. Its core customer value is validated toolchain selection and a reusable Maven-oriented configuration surface.
+## Harness implementation
 
-## Harness today
+Recommendation: build a Harness Maven plugin backed by Harness-maintained Windows Java runtime images.
 
-Harness Run and Test steps already provide Windows execution, images, environment, secrets, logs, timeouts, failure strategies, outputs, and report ingestion. A repository `mvnw.cmd` can own the Maven distribution. Harness Cache Intelligence can cache project dependencies, but it is not a verified runtime distribution cache.
+Harness should initially maintain Temurin Java 8, 11, 17, and 21 runtime profiles for the selected Windows LTSC baseline. Temurin publishes Windows x64 binaries for these LTS versions under GPLv2 with the Classpath Exception. Harness must pin exact builds, rebuild for security updates, publish signed images, and test each supported profile on Windows Kubernetes.
 
-`harness-community/ci-images` has no Windows lane at the reviewed commit. The indexed community `drone-java-maven-plugin` is a stale 2022 Linux-only shell wrapper fixed to Maven 3.8.5 and JDK 11; it does not select Java/Maven versions and can print generated settings containing credentials in debug mode. It is not a Windows product base.
+The user selects a supported Java profile and Maven inputs. The Harness step abstraction resolves the internal runtime image, so the user does not choose an image tag.
 
-## Gap
-
-Harness lacks a supported Windows Maven experience that separates JDK distribution/version from Maven selection, prefers repository wrappers, supplies controlled fallback provisioning, and defines support for legacy combinations. A bare command or a fixed image tag does not preserve Bamboo's useful capability-selection experience across this estate.
-
-Capability mapping:
-
-| Bamboo capability | Customer-used behavior to confirm | Harness primitive | Missing abstraction |
-| --- | --- | --- | --- |
-| Maven executable capability | Maven or wrapper selection | Image, Run/Plugin step | Validated wrapper/version policy |
-| JDK capability | Distribution and version | Image/environment | Supported Java resolver and support class |
-| POM, goals, profiles, options | Repeatable build configuration | Step inputs/template | Maven-oriented input contract |
-| Settings, environment, local repository | Corporate resolution and isolation | Secrets, volumes/cache | Safe settings/mirror/cache convention |
-| Test result patterns | Visible build results | Test reports | Qualified defaults and mappings |
-
-## Recommended approach
-
-Recommendation: use a wrapper-first Maven contract backed by a shared secure Java/tool resolver, with a customer-supplied toolchain image as the POC fallback.
-
-| Design | Assessment |
-| --- | --- |
-| 1. Fixed Maven/JDK images | Fast and reproducible, but creates a tag and patching matrix across Maven, JDK, distribution, and LTSC. Suitable only for a few supported common pairings. |
-| 2. Plugin selects JDK and Maven | Best structured UX and version breadth, but runtime source, verification, proxy, cache, and offline behavior become product responsibilities. |
-| 3. Wrapper-first plugin plus independent JDK | Preferred default. The repository pins Maven while Harness selects Java. It reduces the tool matrix and follows Maven's repository-owned wrapper model. |
-| 4. Hybrid prebuilt plus provisioning | Preferred runtime implementation. Prepackage common supported Java lines, resolve other approved versions from a verified cache/mirror, and use customer images for exceptions. |
-| 5. Customer image plus Maven wrapper plugin | Fastest POC and handles licensed/EOL combinations, but customer effort and inconsistent support make it insufficient as the only product answer. |
-
-JDK 7 must be customer-provided legacy or come from a customer-approved vendor mirror. Oracle's archive requires an account and has license constraints; a current general Temurin JDK 7 distribution should not be assumed. Azul or another vendor may be possible only after commercial and security approval.
-
-## POC experience
-
-Use one customer-approved Windows image for each representative POC pairing, or a single image containing only the few POC runtimes, and a governed Maven template. Prefer `mvnw.cmd`; use a pinned Maven already present in the image only where no wrapper exists.
-
-Proposed user-facing inputs, not final Harness YAML:
-
-```yaml
-java:
-  distribution: temurin
-  version: "17"
-maven:
-  executable: wrapper
-pom: pom.xml
-goals: [clean, verify]
-profiles: [ci]
-settingsSecret: maven-settings
-reports: [target/surefire-reports/*.xml]
+```text
+Harness Maven Plugin
+-> Harness Windows Java 17 runtime
+-> repository mvnw.cmd, or Harness-supported Maven fallback
+-> clean verify
+-> Harness logs, outputs, and test results
 ```
 
-Harness still manages the step, secret references, logs, reports, timeout, retry/failure strategy, and audit. The command is the project build engine inside that managed contract, not an unmanaged script.
+The plugin prefers `mvnw.cmd` because the repository then owns its Maven version. If no wrapper exists, each Java runtime includes one Harness-supported Maven fallback. Additional Maven versions are added only when an active customer build requires them. This creates four logical Java profiles, not a Java x Maven image matrix, and does not download a JDK during the pipeline.
 
-## Productized direction
+Proposed plugin inputs: Java profile, wrapper/fallback selection, POM, goals, profiles, arguments, settings secret, `MAVEN_OPTS`, working directory, environment, and report paths.
 
-Create a Maven-oriented plugin or first-class contract that calls a shared resolver. It should support exact Java distribution/version, wrapper-first Maven, an exact Maven fallback, POM, goals, profiles, settings, environment, working directory, local repository/cache convention, and report paths. It must support approved mirrors, proxy/private CA, deterministic checksums or signatures, bounded retry, safe logs, and offline errors.
+JDK 7 is not part of the standard runtime set. Public Temurin releases do not provide JDK 7. Azul lists Java 7 support on Windows Server, but redistribution, commercial support, security updates, and Windows-container testing require an explicit Harness support decision before it can be included.
 
-Use three support classes: Harness-supported current combinations, compatibility or best effort through the generic resolver, and customer-provided legacy. Do not promise every cross-product of Maven, JDK, distribution, LTSC, and architecture.
+## What we still need to confirm
 
-## Discovery required
+- Is JDK 7 a hard POC requirement?
+- Do any builds require a Java distribution other than Temurin?
+- Which repositories use `mvnw.cmd`, and which Maven fallback versions are required?
+- Which Windows LTSC version and CPU architecture are the POC target?
 
-- Which Maven/JDK pairs actually block the POC, and which JDK distribution is used for each?
-- Which repositories contain `mvnw.cmd`, and are wrapper distributions mirrored internally?
-- Which POM, settings, toolchains, profiles, local repository, and report options are active?
-- Must all runtime archives come through an internal mirror, proxy, or private CA?
-- Which JDK 7 binary is legally and operationally approved?
+## Customer position
 
-## Validation
-
-Run one representative project for each selected support class on the target LTSC node. Verify exact Java/Maven identity, wrapper and no-wrapper paths, private parents/plugins, settings and CA, paths with spaces, cache cold/warm behavior, passed and failed tests, report counts, cancellation, offline failure, checksum rejection, and secret masking. Compare goals, artifacts, and test results with the Bamboo execution.
-
-## Effort and ownership
-
-- POC: 1 to 2 engineering weeks within the shared Windows toolchain workstream, assuming customer images and representative projects exist.
-- Productized Maven contract: 2 to 4 engineering weeks after input validation, excluding the shared resolver foundation.
-- Shared resolver foundation: a separate 2 to 4 week bounded workstream.
-- Likely ownership: CI with Platform for runtime provenance, cache, and release operations.
-
-## What we can tell the customer
-
-- Harness can run and report Maven builds on Windows today with a compatible toolchain image.
-- The POC will prefer repository Maven wrappers and qualify the actual Java/Maven pairs, not build an all-version image matrix.
-- The long-term direction is selectable, verified toolchains with explicit support classes.
-- JDK 7 requires an approved customer or vendor distribution before it can be committed.
+- Harness can provide a structured Maven task on Windows Kubernetes.
+- Java 8, 11, 17, and 21 will be prebuilt, secured, and maintained by Harness once the target LTSC is selected.
+- The Maven plugin hides internal image selection and prefers the repository wrapper.
+- JDK 7 requires an explicit Harness support decision and is not included in the standard runtime set today.
 
 ## Sources
 
 - [Atlassian Maven task](https://confluence.atlassian.com/bamboo1200/maven-1680480796.html)
-- [Bamboo Specs Maven task reference](https://docs.atlassian.com/bamboo-specs-docs/10.0.2/specs.html?yaml=)
-- [GitHub `setup-java`](https://github.com/actions/setup-java/blob/main/README.md)
-- [Oracle Java SE 7 archive](https://www.oracle.com/java/technologies/javase/javase7-archive-downloads.html) and [Java SE 7 license](https://www.oracle.com/downloads/licenses/javase7-license.html)
-- [`drone-java-maven-plugin` at `f72fbd12e522cd70d73a1aac58c2c95fa41a57c5`](https://github.com/kameshsampath/drone-java-maven-plugin/tree/f72fbd12e522cd70d73a1aac58c2c95fa41a57c5)
-- [`ci-images` at `9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc`](https://github.com/harness-community/ci-images/tree/9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc)
-- Harness local evidence: `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, Windows CI, Run/Test, reports, and cache docs.
+- [Bamboo Specs Maven reference](https://docs.atlassian.com/bamboo-specs-docs/10.0.2/specs.html?yaml=)
+- [Eclipse Temurin supported platforms](https://adoptium.net/supported-platforms)
+- [Eclipse Temurin licensing and availability](https://adoptium.net/docs/faq)
+- [Azul supported platforms](https://docs.azul.com/core/supported-platforms)

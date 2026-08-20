@@ -28,3 +28,24 @@ This prevents phrases such as `excluded from Windows CI scope` from being mistak
 ## Customer source reference
 
 The CSV was derived from the email thread with subject `Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration`. Only concise, paraphrased customer context will be used in the planning briefs. The email body and recipient information are not copied into this directory.
+
+## Research repository snapshots
+
+The implementation review used the following read-only repository snapshots. Public Bamboo source was used where available; otherwise the active brief links to the official task documentation used to establish behavior.
+
+| Repository | Reviewed revision |
+| --- | --- |
+| `harness-core` | `4b9442f9229a5f33d300dac097e0a1612c92a3ff` |
+| `developer-hub` | `1c7c98f1d76bb7b8330d6ffba96f984878a32748` |
+| `harness-community/ci-images` | `9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc` |
+| `drone-plugins/drone-artifactory` | `c5db420e97e7c23ce3723aac30deae5b3a714c1e` |
+| `harness-community/drone-nunit` | `479806210a6e95b96bc24eefb9f3d41dd953ab4c` |
+| `harness-community/drone-cucumber` | `a39f074aa8ee6e77e9f17495ace6dc2ab45fd778` |
+| `harness-community/drone-get-maven-version` | `7df46f7c7975996af0ae149ec670f5cbbc65e51a` |
+| `harness-community/drone-ant` default branch | `1b6b9eb7a64528c1876c328dfc3bf3c8e500e638` |
+| `harness-community/drone-ant` PR 1 head | `53b582d4abfbfb7ffb45561b3d42b7c9f468f310` |
+| `DevoKun/bamboo-maven-pom-extractor-plugin` | `83bd81c149de7b2ae562934700cd818347de3c57` |
+| `atlassian/bamboo-nodejs-plugin` 9.3.4 release | `9507e81d191890550da1940c175323d220d2418c` |
+| `kameshsampath/drone-java-maven-plugin` | `f72fbd12e522cd70d73a1aac58c2c95fa41a57c5` |
+
+No implementation repository was modified as part of this planning work.

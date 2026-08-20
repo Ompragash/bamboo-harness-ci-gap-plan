@@ -15,7 +15,7 @@ This capability can re-enter CI planning only if the customer shows that an acti
 - querying a build-local database to assert test outcomes;
 - tearing down a database created exclusively for the current CI execution.
 
-That bounded case would use an engine-specific client image or service, Harness secrets, and a governed Run template. It would not justify a generic multi-database plugin until actual engine, authentication, transaction, output, and cleanup needs show repeated integration logic.
+That bounded case would use a Harness-built and maintained engine-specific Windows client image or service, Harness secrets, and a governed Run template. It would not justify a generic multi-database plugin until actual engine, authentication, transaction, output, and cleanup needs show repeated integration logic. If Harness cannot legally package, secure, patch, and support the required database client on Windows Kubernetes, that client is unsupported for the CI POC rather than shifting maintenance outside Harness.
 
 ## Ownership and effort
 

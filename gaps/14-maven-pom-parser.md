@@ -2,79 +2,61 @@
 
 ## Customer need
 
-The customer uses the Bamboo Maven POM Value Extractor to expose POM data to later tasks. The actual POM path, GAV versus custom expression, variable name/prefix/scope, SNAPSHOT handling, and raw versus effective-POM requirement are unknown.
+The customer extracts Maven POM values and exposes them to later build tasks. Harness must support the required POM path, GAV or custom expression, output name, SNAPSHOT handling, and raw versus effective-POM behavior.
 
-The outcome is a deterministic metadata-to-pipeline-output contract on Windows.
+## How Bamboo handles it
 
-## What Bamboo provides
+The Bamboo Maven POM Value Extractor reads a selected POM on the agent. It can extract groupId, artifactId, and version, strip `-SNAPSHOT`, or query a custom JavaBean-style path. It writes the value as a job, result, or plan variable.
 
-The upstream source at `83bd81c149de7b2ae562934700cd818347de3c57` reads a selected raw POM with Maven's model reader. It can extract groupId/artifactId/version as GAV, strip `-SNAPSHOT`, use the `maven.` or custom prefix, or query one custom JavaBean path such as `properties(source.code.level)` or `dependencies[3].version`. It writes job, result, or plan-scoped Bamboo variables. It does not resolve the effective model; vendor documentation instructs users to generate an effective POM first when inherited/resolved values are needed.
+The plugin reads a raw Maven model. If an effective model is required, the vendor instructs users to generate an effective POM first.
 
 ```text
-raw or pre-generated effective POM
--> GAV or custom JavaBean property
--> named/scoped Bamboo variable
+POM file on Bamboo agent
+-> GAV or custom property query
+-> named Bamboo variable
+-> later task consumes value
 ```
 
-## Harness today
+## Harness implementation
 
-`harness-community/drone-get-maven-version` accepts only a POM directory, invokes Maven `help:evaluate` for `project.version`, and writes only `POM_VERSION`. That uses Maven's evaluated model for one value, not the Bamboo plugin's broader raw-model contract. Its LTSC 2022 Dockerfile installs Maven/OpenJDK through unpinned Chocolatey packages, and no workflows, tests, tags, or release lifecycle were found.
+Recommendation: replace the version-only community utility with a Harness POM Values plugin built on the Harness Windows Java runtime family.
 
-## Gap
+The existing `drone-get-maven-version` runs Maven `help:evaluate` and emits only `POM_VERSION`. It does not cover GAV, custom paths, output naming, SNAPSHOT removal, or explicit raw/effective behavior.
 
-The existing utility satisfies only the narrow case “evaluated project.version as one output.” It does not provide GAV, arbitrary JavaBean paths, custom names/prefixes, SNAPSHOT stripping, explicit raw/effective behavior, or a supported Windows release. Extending it without customer fields could choose the wrong semantics.
+The Harness plugin should support:
 
-## Recommended approach
+- POM path;
+- `raw` or `effective` model mode;
+- GAV or a bounded list of custom expressions;
+- explicit Harness output names;
+- optional SNAPSHOT removal;
+- clear missing-property and malformed-POM failure behavior.
 
-Recommendation: qualify the existing utility only if the customer needs evaluated `project.version`; otherwise replace or extend it with an explicit POM query contract after configuration discovery.
-
-For a broader product path, prefer a small cross-platform parser for raw-model GAV/custom paths and an explicit `model: effective` mode that runs approved Maven with supplied settings when resolution is genuinely required. Do not silently change raw to effective semantics. Reuse the Maven runtime contract instead of installing unpinned packages in this plugin image.
-
-## POC experience
-
-Proposed plugin inputs, not final Harness YAML:
-
-```yaml
-pom: services/api/pom.xml
-model: raw
-queries:
-  - expression: groupId
-    output: maven_group_id
-  - expression: version
-    output: maven_version
-    stripSnapshot: true
+```text
+Harness POM Values Plugin
+-> Harness Windows Java runtime
+-> raw POM parser, or supported Maven for effective mode
+-> named Harness execution outputs
+-> later stage/pipeline consumes outputs
 ```
 
-If the single required field is evaluated project version, the POC may use the existing plugin after Windows packaging and output qualification.
+Raw mode uses an embedded parser. Effective mode uses the supported Maven installation already present in the selected Java profile, including approved settings and repository access. No Maven or JDK is installed during the pipeline.
 
-## Productized direction
+## What we still need to confirm
 
-Choose one owned repository and define typed query/output behavior, path validation, duplicate output handling, missing/null property policy, XML safety, raw/effective mode, settings/private-parent behavior, and structured Harness outputs. Effective mode shares the Maven resolver, mirror, proxy, CA, and cache controls. Avoid mutating plan-level configuration from a build; pass execution outputs to later stages/pipelines explicitly.
+- Which POM paths and GAV/custom expressions are active?
+- Are values expected from the raw or effective POM?
+- Which output names and SNAPSHOT rules are required?
+- Must values cross stages or pipelines?
 
-## Discovery required
+## Customer position
 
-- Which POM paths, GAV/custom expressions, output names, prefixes, scopes, and SNAPSHOT rules are active?
-- Are values expected from the raw POM or an effective POM with parent/profile/property resolution?
-- Must outputs cross stages or pipelines, and how are they consumed?
-
-## Validation
-
-Use POMs with parent inheritance, properties, profiles, dependencies, missing fields, namespaces, paths with spaces, and private parents. Verify exact output names/values, SNAPSHOT removal, raw/effective distinction, malformed XML failure, secret masking, and parity with Bamboo for every selected expression.
-
-## Effort and ownership
-
-- Version-only qualification/hardening: less than 1 engineering week.
-- Bounded GAV/custom/raw-effective extension: 1 to 2 engineering weeks after discovery.
-- Likely ownership: CI; Maven resolver work is shared with the Maven capability.
-
-## What we can tell the customer
-
-- An existing Windows-oriented utility can return evaluated Maven project version, but it does not yet match the full Bamboo extractor.
-- Exact fields and raw/effective semantics determine whether qualification or extension is required.
-- Product outputs will be explicit Harness execution outputs rather than hidden plan mutation.
+- Harness will provide POM values as explicit pipeline outputs.
+- The supported plugin will cover more than the existing version-only utility.
+- It will reuse the Harness Java runtime and will not maintain a separate Java image.
 
 ## Sources
 
-- [`bamboo-maven-pom-extractor-plugin` at `83bd81c149de7b2ae562934700cd818347de3c57`](https://github.com/DevoKun/bamboo-maven-pom-extractor-plugin/tree/83bd81c149de7b2ae562934700cd818347de3c57)
-- [Vendor effective-POM guidance](https://gaptap.atlassian.net/wiki/spaces/BAMMVNEXTR/pages/10715138/Extracting%2Bvalues%2Bfrom%2Bthe%2Beffective%2BPOM)
-- [`drone-get-maven-version` at `7df46f7c7975996af0ae149ec670f5cbbc65e51a`](https://github.com/harness-community/drone-get-maven-version/tree/7df46f7c7975996af0ae149ec670f5cbbc65e51a)
+- [Bamboo Maven POM extractor source](https://github.com/DevoKun/bamboo-maven-pom-extractor-plugin)
+- [Effective-POM guidance](https://gaptap.atlassian.net/wiki/spaces/BAMMVNEXTR/pages/10715138/Extracting%2Bvalues%2Bfrom%2Bthe%2Beffective%2BPOM)
+- [`drone-get-maven-version`](https://github.com/harness-community/drone-get-maven-version)

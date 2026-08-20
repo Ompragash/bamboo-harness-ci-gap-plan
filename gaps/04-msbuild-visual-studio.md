@@ -2,96 +2,63 @@
 
 ## Customer need
 
-The customer lists MSBuild 2.0, 3.5, 4.0, 12, 14, 15, 16, and 17 on Windows. Those numbers do not identify the required SDKs, .NET Framework targeting packs, C++ toolsets, installer/database project support, architecture, or whether full `devenv.exe` behavior is required.
+The customer lists MSBuild 2.0, 3.5, 4.0, 12, 14, 15, 16, and 17. Harness must build the selected solutions and projects in Windows containers on Kubernetes, including the required SDKs, .NET Framework targeting packs, C++ toolsets, and other Build Tools workloads.
 
-The outcome is a build environment that can reproduce the selected solutions and projects. Visual Studio workload composition and Windows host/container compatibility are more important than a thin MSBuild command wrapper.
+The implementation must state which workloads are supported in Windows containers. It cannot assume that every historical Visual Studio installation or `devenv.exe` workflow can be moved unchanged.
 
-## What Bamboo provides
+## How Bamboo handles it
 
-Bamboo selects an installed MSBuild or Visual Studio executable capability, making that tool available only on compatible agents. The MSBuild task accepts a project/solution, options, environment, and working directory. Current Bamboo documentation says it writes project and options to a response file and invokes `msbuild @response-file` by default. The Visual Studio task selects `devenv.exe`, passes solution/options, and can initialize the selected platform through `Vcvarsall.bat`.
+Bamboo administrators install MSBuild or Visual Studio on long-lived Windows agents and register executable capabilities. The MSBuild and Visual Studio tasks require those capabilities, so Bamboo selects a matching agent.
+
+The MSBuild task supplies a solution/project, options, environment, and working directory, then normally invokes MSBuild through a response file. The Visual Studio task can invoke `devenv.exe` and initialize platform variables through Visual Studio developer scripts.
 
 ```text
-Bamboo task
--> agent with installed Build Tools or Visual Studio
--> project, platform, options, environment
--> MSBuild response file or devenv command
+Bamboo selects agent with required Visual Studio/MSBuild installation
+-> task supplies project, targets, configuration, platform, and options
+-> installed MSBuild or devenv runs
+-> result returns to Bamboo
 ```
 
-Bamboo adds executable selection and configuration, but the agent administrator still owns the Microsoft workload installation.
+## Harness implementation
 
-## Harness today
+Recommendation: build a Harness MSBuild plugin backed by a small Harness-maintained Windows .NET and Visual Studio Build Tools runtime family.
 
-Harness can run PowerShell or command steps in a compatible Windows image or on suitable self-managed infrastructure. It can provide templates, secrets, logs, outputs, timeouts, and reports. It does not currently supply a qualified matrix of Visual Studio Build Tools workloads for this customer's projects.
+The initial runtime profiles should be:
 
-## Gap
+- a Windows .NET SDK profile for modern SDK-style projects;
+- a Windows .NET Framework SDK profile for supported full-framework builds;
+- a Visual Studio Build Tools 2022 profile for MSBuild 17 and the customer-required container-compatible workloads.
 
-The missing work is workload discovery, a supported environment profile, and representative project qualification. A generic `drone-msbuild` wrapper would not install the correct targeting packs or make `devenv.exe` container-safe. Dynamic per-run Visual Studio installation would be slow, network-dependent, difficult to patch, and often incompatible with container constraints.
+Additional Build Tools 2019 or 2017 profiles are created only if MSBuild 16 or 15 is a hard POC requirement and Microsoft licensing, servicing, base-OS compatibility, and workload tests pass. MSBuild 2.0 through 14 require an explicit support decision and are not in the standard set.
 
-## Recommended approach
-
-Recommendation: use immutable, workload-specific Windows Build Tools images for container-compatible projects and a Windows VM/runner lane for full Visual Studio or unsupported workloads.
-
-| Option | Assessment |
-| --- | --- |
-| Fixed workload images | Preferred for known MSBuild/SDK/Build Tools profiles; large but testable and reproducible. |
-| One broad Visual Studio image | Avoid by default; very large, high patching load, and conflicting legacy workloads. |
-| Dynamic plugin provisioning | Rejected for Visual Studio installation during each build. A thin command contract may still normalize inputs. |
-| Hybrid | Preferred: a few maintained profiles plus customer image/VM exceptions. |
-| Customer image | Fastest POC and appropriate for unsupported legacy workloads. |
-
-## POC experience
-
-Select one representative solution and use the customer's existing Build Tools image or runner. Configure a governed template with project/solution, target, configuration, platform, properties, environment, response-file behavior, and report/artifact paths.
-
-Proposed template inputs, not final Harness YAML:
-
-```yaml
-tool: msbuild
-solution: src/Product.sln
-configuration: Release
-platform: x64
-targets: [Restore, Build]
-properties:
-  ContinuousIntegrationBuild: "true"
+```text
+Harness MSBuild Plugin
+-> Harness VS Build Tools 2022 Windows runtime
+-> solution + targets + configuration + platform
+-> MSBuild response file
+-> Harness logs, artifacts, and test handoff
 ```
 
-If the project requires `devenv.exe`, desktop interaction, unsupported installer components, or a workload that cannot run correctly in Windows containers, the POC uses a VM runner rather than claiming container parity.
+Microsoft supports Visual Studio Build Tools in Windows containers and publishes official Windows .NET SDK and .NET Framework SDK images. Full Visual Studio editions are not supported in Windows containers. Therefore `devenv.exe` tasks must be converted to Build Tools/MSBuild-compatible commands or identified as unsupported for this Kubernetes Windows target. Installer, SSDT/database, older SDK, and some C++ workloads must be tested before they are added to a Harness profile.
 
-## Productized direction
+## What we still need to confirm
 
-Maintain a small set of named workload profiles, each with an exact Windows/LTSC compatibility statement, Build Tools channel/version, component list, servicing test, SBOM, signing, and rebuild policy. A reusable template can preserve Bamboo's project/options/environment UX and response-file safety. Do not make Visual Studio installation part of the shared lightweight runtime resolver.
+- Which project types and Visual Studio workload/component IDs block the POC?
+- Which builds require MSBuild 15/16 or older versions rather than MSBuild 17?
+- Which tasks call `devenv.exe` and can they be converted to MSBuild?
+- What Windows LTSC baseline and container isolation mode will Kubernetes use?
 
-Legacy profiles move to best-effort or customer-provided support. Full Visual Studio licensing and `devenv.exe` use require separate legal and infrastructure validation.
+## Customer position
 
-## Discovery required
-
-- Which solution/project types and Microsoft workload/component IDs are POC blockers?
-- Which .NET Framework targeting packs, Windows SDKs, C++ toolsets, installer/database projects, and architectures are required?
-- Which builds require `devenv.exe` rather than MSBuild or `dotnet build`?
-- What does the customer's label “Visual Studio 2025” mean?
-
-## Validation
-
-Build representative projects on the target host and container isolation mode. Verify restore, compile, generated artifacts, custom targets, native toolchains, paths with spaces, response-file quoting, private package access, failure propagation, cancellation, and NUnit/MSTest handoff. Compare binary/artifact metadata and logs with Bamboo where deterministic equality is expected.
-
-## Effort and ownership
-
-- Discovery before estimate for the full estate.
-- POC: 1 to 2 engineering weeks for one known workload profile after inputs and installers exist.
-- Productization: 2 to 4 engineering weeks per bounded profile family, plus ongoing Microsoft servicing.
-- Likely ownership: CI + Platform; Microsoft licensing and vendor support are external dependencies.
-
-## What we can tell the customer
-
-- Harness can govern MSBuild and Visual Studio command execution on compatible Windows infrastructure.
-- The POC will qualify the project workload, not infer compatibility from an MSBuild version number.
-- Visual Studio workloads will use prebuilt profiles or a VM, not an installer downloaded on every build.
-- We need representative project types and component IDs before committing to coverage.
+- Harness will own the .NET and Build Tools Windows images used by the plugin.
+- Modern .NET, supported .NET Framework, and MSBuild 17 have clear container implementation paths.
+- Legacy MSBuild profiles require explicit support decisions.
+- Full Visual Studio and unchanged `devenv.exe` execution are not supported in Windows containers.
 
 ## Sources
 
 - [Atlassian MSBuild task](https://confluence.atlassian.com/bamboo0900/msbuild-1167721261.html)
 - [Atlassian Visual Studio task](https://confluence.atlassian.com/bamboo/visual-studio-289277041.html)
-- [Microsoft Build Tools workload and component IDs](https://learn.microsoft.com/en-us/visualstudio/install/workload-component-id-vs-build-tools)
-- [Microsoft Windows container version compatibility](https://learn.microsoft.com/en-us/virtualization/windowscontainers/deploy-containers/version-compatibility)
-- Harness local evidence: `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, Windows CI and test docs.
+- [Microsoft Build Tools in Windows containers](https://learn.microsoft.com/en-us/visualstudio/install/build-tools-container)
+- [Microsoft Visual Studio container support](https://learn.microsoft.com/en-us/troubleshoot/developer/visualstudio/installation/visual-studio-unsupported-operating-systems)
+- [Microsoft .NET container images](https://learn.microsoft.com/en-us/dotnet/core/docker/container-images)

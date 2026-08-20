@@ -2,83 +2,58 @@
 
 ## Customer need
 
-The customer needs Microsoft test execution and visible results for projects associated with Visual Studio 2015, 2017, 2019, 2022, and a label “Visual Studio 2025.” The inventory does not identify `dotnet test`, `vstest.console.exe`, legacy `mstest.exe`, adapter versions, `.runsettings`, coverage collectors, or full-framework requirements.
+The customer runs Microsoft tests for projects associated with Visual Studio 2015, 2017, 2019, 2022, and a label “Visual Studio 2025.” Harness must support the required `dotnet test`, `vstest.console.exe`, or legacy MSTest mode, including adapters, filters, `.runsettings`, result paths, and failure behavior.
 
-The customer outcome is correct execution, adapters, filters/settings, task failure, and report visibility. Test Intelligence is optional and must be qualified separately.
+The task runs in a Windows container and should reuse the same Harness-owned .NET/Visual Studio foundation as MSBuild and NUnit.
 
-## What Bamboo provides
+## How Bamboo handles it
 
-Bamboo's MSTest task selects a configured test executable capability, takes test containers and result-related options, executes the Microsoft runner, and parses results into Bamboo.
+Bamboo selects a long-lived Windows agent with the configured Microsoft test executable and Visual Studio/.NET runtime already installed. The MSTest task supplies test containers and runner options, invokes the executable, and parses the results into Bamboo.
 
 ```text
-Bamboo MSTest task
--> selected Microsoft test executable
--> assemblies, settings, options
--> TRX/results
--> Bamboo test visibility and task outcome
+Bamboo selects agent with Microsoft test runner + adapters
+-> task runs assemblies/projects with settings and filters
+-> TRX/result file is parsed
+-> test result and task status return to Bamboo
 ```
 
-Public Bamboo source was not available. Official task documentation defines the verified behavior; exact customer exports are needed for adapter and settings parity.
+## Harness implementation
 
-## Harness today
+Recommendation: build a Harness MSTest execution wrapper on the Harness-owned .NET/Visual Studio runtime family.
 
-Harness Run and Test steps can invoke `dotnet test` or VSTest and collect reports. The Test step documents C# reporting behavior, but current compatibility tables leave Windows C# supported versions and .NET Framework support as TBD. Therefore native reporting is available as a candidate, while Windows Test Intelligence is not yet a customer commitment.
+The wrapper chooses the modern .NET SDK profile for `dotnet test` or a supported Visual Studio Build Tools test profile for VSTest and full .NET Framework. The runtime image contains the supported test platform and standard adapters before the container starts. Additional adapters or data collectors are packaged only when the selected customer projects require them.
 
-## Gap
-
-The missing work is the exact Windows workload, runner, adapter, settings, data collector, and result-path qualification. There is no need to recreate Microsoft's runner. A plugin would only be justified if repeated result normalization is needed across NUnit/MSTest/Cucumber, not merely to invoke VSTest.
-
-## Recommended approach
-
-Recommendation: qualify the native Test path for modern projects and use a governed VSTest Run template plus native report ingestion for legacy or unsupported modes.
-
-The .NET workload profile supplies the runner, targeting packs, adapters, and data collectors. Harness manages step inputs, credentials, logs, reports, outputs, timeout, failure strategy, and audit. Use a side-by-side normalizer only when the exact output is not natively supported; share it with NUnit rather than create an MSTest-only plugin.
-
-## POC experience
-
-Proposed template inputs, not final Harness YAML:
-
-```yaml
-runner: vstest
-testContainers: [tests/Product.Tests.dll]
-settingsFile: tests/ci.runsettings
-filter: TestCategory=Smoke
-resultsDirectory: TestResults
-reportPaths: [TestResults/*.trx]
+```text
+Harness MSTest Wrapper
+-> Harness .NET SDK or VS Build Tools test runtime
+-> dotnet test or vstest.console.exe
+-> TRX
+-> Harness test results
 ```
 
-One modern project tests the native Test path. One full-framework project, if a blocker, tests the workload image and VSTest fallback. TI is enabled only after compatibility ownership and E2E proof.
+Proposed inputs: runtime profile, project/assembly paths, adapter path, `.runsettings`, filter, configuration, results directory, report paths, and additional runner arguments. Harness manages logs, secrets, timeout, failure strategy, and test result publication.
 
-## Productized direction
+No separate MSTest runtime image is required. The MSBuild, NUnit, and MSTest components share the same .NET SDK and Build Tools profiles. Legacy `mstest.exe` or old adapters are added only after an explicit Harness support decision.
 
-Keep runner invocation in native Test/Run steps. Maintain the selected Build Tools profiles and document adapter/report compatibility. Add TRX or legacy normalization to the shared test-result layer only when native ingestion cannot preserve required semantics.
+Current Harness documentation does not identify supported Windows C# Test Intelligence versions. The POC can provide complete execution and result visibility without claiming TI until the exact framework is supported and tested.
 
-## Discovery required
+## What we still need to confirm
 
-- Which runner executable, MSTest adapter version, and framework are active?
-- Which `.runsettings`, deployment items, coverage/data collectors, test filters, and custom adapters are required?
-- Which output format and failure/no-result behavior does Bamboo use?
-- Is Windows Test Intelligence required for the POC?
+- Which runner executable, adapter version, and framework are active?
+- Which `.runsettings`, filters, coverage collectors, and deployment items are required?
+- Is legacy `mstest.exe` required, or can builds use VSTest/`dotnet test`?
+- Is Windows C# Test Intelligence required for the POC?
 
-## Validation
+## Customer position
 
-Execute representative modern and legacy suites on the target Windows environment. Verify passed, failed, skipped, filtered, and data-driven cases; adapter discovery; `.runsettings`; coverage artifact if required; accurate report counts; failure behavior; paths with spaces; cancellation; and secret masking. Compare the same project with Bamboo.
-
-## Effort and ownership
-
-- POC: qualification only for a modern project; legacy work is shared with MSBuild/NUnit and may take 1 to 2 engineering weeks.
-- Productization: part of .NET workload maintenance; shared normalizer is 2 to 4 weeks only if selected.
-- Likely ownership: CI + Platform.
-
-## What we can tell the customer
-
-- Harness can execute Microsoft test runners and surface reports on Windows with the right workload image.
-- Modern and legacy modes will be qualified separately.
-- A new MSTest invocation plugin is not planned because it would duplicate Microsoft tooling and Harness step controls.
-- Windows C# Test Intelligence is not being promised until the exact mode is supported and proven.
+- Harness will provide a structured Microsoft test flow on Windows Kubernetes.
+- MSTest reuses Harness-maintained .NET/Visual Studio runtime images.
+- Modern `dotnet test` and supported VSTest modes have clear implementation paths.
+- Legacy runners and Windows Test Intelligence require explicit support decisions.
 
 ## Sources
 
 - [Atlassian MSTest Runner](https://confluence.atlassian.com/display/BAMBOO1020/MSTest%2BRunner)
-- [Atlassian test task configuration](https://confluence.atlassian.com/bamboo1200/configuring-a-test-task-1680480840.html)
-- Harness local evidence: `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, `run-tests-in-ci.md`, `tests-v2.md`, and `test-report-ref.md`.
+- [Microsoft .NET container images](https://learn.microsoft.com/en-us/dotnet/core/docker/container-images)
+- [Microsoft Build Tools in Windows containers](https://learn.microsoft.com/en-us/visualstudio/install/build-tools-container)
+- [Harness Test step](https://developer.harness.io/docs/continuous-integration/use-ci/run-tests/tests-v2/)

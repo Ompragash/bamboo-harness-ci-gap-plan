@@ -2,77 +2,53 @@
 
 ## Customer need
 
-The customer has Bamboo's Maven Dependencies Processor in its inventory. The important need is likely to start or block downstream builds when producer Maven artifacts or SNAPSHOT relationships change. The active plan relationships and required selection behavior are not yet known.
+The customer uses Bamboo's Maven Dependencies Processor to connect producer and consumer builds based on Maven relationships. The migration must preserve build ordering, downstream triggers, failure blocking, and the exact artifact selected by each consumer.
 
-This is orchestration metadata, not a Windows Maven execution feature.
+This capability changes the CI build graph. It is not part of Maven compilation and does not require a Windows runtime image.
 
-## What Bamboo provides
+## How Bamboo handles it
 
-Bamboo can inspect Maven project metadata and update plan dependencies from Maven relationships. Bamboo's dependency model can then order builds, block dependents, and propagate build activity through the plan graph.
+Bamboo reads Maven project metadata and updates dependencies between Bamboo plans. Bamboo's server-side orchestration then schedules downstream plans when the configured producer completes and applies Bamboo's dependency-blocking rules.
 
 ```text
-POM relationship
+Maven project relationship
 -> Bamboo plan dependency
--> producer build
--> dependent plan scheduling
+-> producer build completes
+-> dependent plan starts or remains blocked
 ```
 
-The useful outcome is a reliable producer-consumer graph. Automatic POM discovery is Bamboo-specific convenience, and the customer may not need it for every plan.
+The processor saves teams from configuring every Bamboo plan link manually, but the useful result is the producer-consumer graph rather than the processor itself.
 
-## Harness today
+## Harness implementation
 
-Harness can represent the outcome explicitly with ordered stages, pipeline chaining, completion triggers, runtime inputs, and immutable artifact coordinates. Build Intelligence can optimize supported Maven build work but does not replace cross-pipeline orchestration.
+Recommendation: represent the active graph explicitly with Harness pipeline chaining, triggers, ordered stages, and immutable artifact inputs.
 
-## Gap
-
-Harness does not automatically translate the customer's Bamboo-discovered plan graph. The migration must identify active producer-consumer relationships and express them as explicit Harness orchestration and artifact contracts.
-
-## Recommended approach
-
-Recommendation: model the active relationships with Harness pipeline chaining/triggers, ordered stages, and immutable artifact version inputs.
-
-A plugin is not required. An execution container cannot safely mutate the management-plane graph, and implicit POM discovery can hide ownership and version-selection rules. Explicit orchestration is easier to audit and reproduce.
-
-## POC experience
-
-Select one active chain and configure:
+For each active dependency, the producer publishes an artifact version and digest. A completion trigger or pipeline chaining starts the consumer and passes the exact version. The consumer downloads that version rather than performing an untracked “latest successful” lookup.
 
 ```text
-producer pipeline
--> publish immutable artifact and digest
--> completion trigger or chained pipeline
--> pass artifact version as input
--> consumer downloads exact version
+Harness producer pipeline
+-> publish artifact version + digest
+-> completion trigger / pipeline chaining
+-> Harness consumer receives exact version
+-> consumer downloads and verifies artifact
 ```
 
-The POC should also demonstrate expected behavior when the producer fails, the artifact is absent, or the consumer is rerun.
+Harness should provide a reusable orchestration template and a migration mapping for common Bamboo graph shapes. A Windows plugin is not needed because an execution container should not modify the Harness management-plane graph. Build Intelligence can optimize supported Maven builds, while pipeline chaining and triggers remain the general dependency mechanism.
 
-## Productized direction
+## What we still need to confirm
 
-Keep the explicit Harness model. Provide a migration runbook or template for repeated graph shapes. Build Intelligence can complement this by identifying affected builds where its supported model applies; pipeline chaining and triggers remain the general orchestration mechanisms.
+- Which generated plan dependencies are active POC blockers?
+- Are branch matching, transitive triggers, failure blocking, or fan-out/fan-in used?
+- Does any consumer depend on “latest successful” rather than an explicit artifact version?
 
-## Discovery required
+## Customer position
 
-- Which processor-generated dependencies are active POC blockers?
-- Is the trigger source a successful producer build, a POM change, or an artifact version?
-- Are latest-success selection, branch matching, blocking, or fan-out/fan-in semantics used?
-
-## Validation
-
-Compare one producer-consumer chain with Bamboo. Verify success, failure, rerun, branch behavior, artifact identity/digest, duplicate event handling, and auditability of the selected producer execution.
-
-## Effort and ownership
-
-- POC and product template: less than 1 engineering week for one representative chain.
-- Likely ownership: CI; artifact repository ownership may involve HAR.
-
-## What we can tell the customer
-
-- Harness can model the dependency outcome through native chaining, triggers, stages, and artifact inputs.
-- No Windows plugin or POM-scanning container is required for the POC.
-- We need one active generated relationship to preserve its exact scheduling behavior.
+- Harness provides this through native pipeline orchestration, not a Windows plugin.
+- Producer-consumer relationships will be explicit and auditable.
+- Cross-pipeline artifacts will use immutable versions and digests.
 
 ## Sources
 
 - [Atlassian plan build dependencies](https://confluence.atlassian.com/bamboo0902/setting-up-plan-build-dependencies-1236931619.html)
-- Harness local evidence: `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, Build Intelligence and data-sharing docs.
+- [Harness pipeline chaining](https://developer.harness.io/docs/platform/pipelines/pipeline-chaining/)
+- [Harness share data across steps and stages](https://developer.harness.io/docs/continuous-integration/use-ci/caching-ci-data/share-ci-data-across-steps-and-stages/)
