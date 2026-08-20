@@ -17,7 +17,7 @@ JFrog file spec / selector
 
 ## Harness implementation
 
-Recommendation: repair the `download` command in the existing Harness Artifactory plugin and publish it in the Harness-maintained Windows Artifactory utility image.
+Recommendation: repair the `download` command in the existing Artifactory plugin and publish one fixed Harness-maintained Windows utility Plugin image.
 
 The current code already accepts an inline spec or spec path, Artifactory URL, credentials, build name/number, project, and module. Harness needs to:
 
@@ -30,14 +30,14 @@ The current code already accepts an inline spec or spec path, Artifactory URL, c
 - add Windows LTSC tests, signed image publication, and release ownership.
 
 ```text
-Harness Artifactory Download Plugin
--> Harness Windows Artifactory utility image
+Harness Plugin step
+-> explicit harness/drone-artifactory:windows-download-<ltsc> image
 -> validated JFrog file spec
 -> JFrog CLI download
 -> files in workspace + Harness outputs
 ```
 
-No Java, Node, or database runtime belongs in this download image. It contains only the plugin launcher, pinned JFrog CLI, certificates needed by the image, and standard Windows utility dependencies.
+The Plugin step references that tag directly. File-spec and transfer settings are passed to the running image and never select another image. No Java, Node, or database runtime belongs in this download image. It contains only the plugin launcher, pinned JFrog CLI, required certificates, and standard Windows utility dependencies.
 
 ## What we still need to confirm
 

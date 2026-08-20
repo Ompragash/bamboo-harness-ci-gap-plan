@@ -1,64 +1,76 @@
 # Bamboo to Harness CI Windows POC
 
-## What is different
+## Correct execution model
 
 ```text
 Bamboo
 
-Long-lived Windows agent
-+ tools installed and registered as capabilities
-+ Bamboo task provides structured inputs
+preinstalled Windows agents
++ executable/JDK capabilities
++ task requirements select a matching agent
++ Bamboo task invokes the installed tool
 
                     becomes
 
 Harness Kubernetes Windows
 
-Harness-owned Windows runtime image
-+ Harness plugin or governed wrapper
-+ one container for each pipeline step
+explicit image in each Run or Plugin step
++ required tool already inside that image
++ step command or plugin settings execute in that image
 ```
 
-Bamboo schedules a job onto an agent where Java, Maven, Node, Visual Studio, or another tool is already installed. Harness Kubernetes schedules a Windows container, so Harness must package the required runtime in a maintained image and provide the task abstraction that invokes it.
+Bamboo uses capability matching to choose an agent with the required toolchain. Harness Kubernetes does not perform equivalent toolchain matching for a step. A Run step references an image and command. A Plugin step references a plugin image and settings. In both cases, the configured image is the image that runs; a plugin setting such as `java_version: 17` does not make Harness replace it with another image.
 
-Harness should not install large common runtimes during every pipeline run. It should also avoid one image for every tool combination. The recommended model is a small number of Harness-owned runtime families with plugin inputs that hide the internal image profile from the user.
+The planning question is therefore which Harness-maintained images are required and whether each capability needs a Plugin abstraction or only a native Run step. Harness builds, publishes, signs, scans, patches, qualifies, and supports every proposed image.
 
-Harness owns the build, publication, security scanning, signing, Windows Kubernetes testing, patching, and support lifecycle for every runtime and plugin image in this plan.
+## Final Run versus Plugin model
 
-## Proposed runtime model
-
-| Capability | Harness-owned runtime | Harness abstraction |
+| Capability | Harness step | Explicit image approach |
 | --- | --- | --- |
-| Maven | Windows Java 8, 11, 17, and 21 profiles | Maven plugin |
-| Ant | Same Java runtime family | Ant plugin |
-| Groovy | Same Java runtime family with supported Groovy layer | Groovy wrapper |
-| Node | Selected supported Windows Node profiles | Node plugin |
-| MSBuild | Windows .NET SDK, .NET Framework SDK, and VS Build Tools profiles | MSBuild plugin |
-| NUnit | Same .NET/VS test profiles | NUnit plugin with result processing |
-| MSTest | Same .NET/VS test profiles | MSTest execution wrapper |
-| Git and warnings | Windows utility runtime | Governed Git template and warnings plugin |
-| Artifactory | Java, Node, or utility profile according to command | Repaired existing Artifactory plugin |
-| POM, Cucumber, qTest | Java or small integration profiles | POM Values, conditional Cucumber Results, and qTest Publisher plugins |
+| Maven | Run | One `windows-java-build` tag per supported JDK |
+| Ant | Run | Same Java build image family |
+| Groovy | Run | Same Java build image family |
+| Node | Run | One Windows Node tag per approved version |
+| MSBuild | Run | .NET SDK or workload-specific VS Build Tools tag |
+| NUnit | Run | .NET SDK or NUnit/Build Tools test tag |
+| MSTest | Run | .NET SDK or VS Build Tools test tag |
+| Artifactory | Plugin | Complete Java, Node, or download Plugin image tag |
+| Cucumber | Run | Existing language image and native JUnit reporting |
+| qTest | Plugin | Fixed Windows qTest Publisher image |
 
-JDK 7, old Node/npm pairs, MSBuild 2.0 through 14, legacy test runners, and unusual Visual Studio workloads are not automatically included. Each requires an explicit Harness decision covering redistribution, security updates, Windows-container feasibility, tests, and support ownership.
+Run is preferred for build tools whose Bamboo task mainly selects an executable and constructs a command. Harness already provides the container lifecycle, secrets, environment, logs, outputs, report paths, timeout, and failure strategy. Reusable Run Step Templates standardize the command and image without maintaining plugin code.
 
-Full Visual Studio and `devenv.exe` are not supported in Windows containers. Those tasks must move to Build Tools/MSBuild-compatible commands or be identified as unsupported for this POC environment.
+Plugin remains appropriate for integrations that perform API authentication, object resolution, metadata publication, result transformation, or structured outputs.
+
+## Images Harness needs
+
+- `harness/windows-java-build:temurin8|11|17|21` with one JDK plus supported Maven, Ant, and Groovy tooling per tag.
+- `harness/windows-node:<approved-version>-<ltsc>` with Node and its compatible npm.
+- `harness/windows-dotnet-sdk:<major>-<ltsc>` for modern .NET.
+- `harness/windows-dotnet-framework:<target>-<ltsc>` for approved full-framework projects.
+- `harness/windows-vs-buildtools:2022-<workload>-<ltsc>` for MSBuild/VSTest workload profiles.
+- Test overlays containing approved NUnit/VSTest runners and pinned JUnit conversion tools where the base build image is insufficient.
+- Fixed Windows integration images for Artifactory, POM Values, warnings, conditional Cucumber JSON processing, and qTest.
+- A small Windows CI utility image with Git and approved base tools.
+
+JDK 7, EOL Node/npm pairs, old MSBuild releases, legacy test runners, and unusual Visual Studio workloads require explicit Harness support decisions. If Harness cannot legally redistribute, secure, patch, and qualify a requested toolchain, it is unsupported rather than transferring maintenance outside Harness.
 
 ## POC implementation work
 
-1. Define the Harness Windows plugin facade and internal runtime-profile selection convention.
-2. Build the Harness Windows Java 8, 11, 17, and 21 runtime family.
-3. Build the Maven plugin, then the Ant plugin and Groovy wrapper on that Java family.
-4. Build the selected Windows Node runtime profiles and Node plugin.
-5. Build the .NET SDK, .NET Framework SDK, and VS Build Tools workload profiles required by the POC.
-6. Build the MSBuild plugin and the shared NUnit/MSTest execution and reporting layer.
-7. Repair and publish the existing Artifactory plugin for the required Java, Node, and utility profiles.
-8. Complete native orchestration/templates, then implement only the confirmed POM, Cucumber, warnings, and qTest work.
+1. Define the Windows base-image, immutable tagging, signing, SBOM, and LTSC compatibility conventions.
+2. Build the Java 8/11/17/21 build-image tags and Maven Run template first.
+3. Add Ant and Groovy Run templates on the same Java image family.
+4. Build only the confirmed Node image tags and Node Run template.
+5. Build the confirmed .NET and VS Build Tools workload images and MSBuild Run template.
+6. Add NUnit/MSTest test overlays, conversion tooling, and Run templates.
+7. Repair and publish explicit Artifactory Plugin image tags.
+8. Complete native orchestration/templates and the confirmed POM, Cucumber, warnings, and qTest integrations.
 
-The dependency-aware implementation and estimates are in [cross-cutting-plan.md](cross-cutting-plan.md).
+See [cross-cutting-plan.md](cross-cutting-plan.md) for the image and step decisions.
 
 ## Customer questions
 
-The eight POC questions cover blockers, Windows LTSC, Java/JDK 7, Maven/Ant/Groovy, Node, Visual Studio workloads, test runners, and network/vendor constraints. See [customer-questions.md](customer-questions.md).
+The eight P0 questions identify the actual image/version matrix, Windows baseline, structured-task UX requirement, Visual Studio workloads, test runners, and integration constraints. See [customer-questions.md](customer-questions.md).
 
 ## Capability briefs
 
@@ -73,7 +85,7 @@ There are 18 active CI capability briefs. Historical selection details remain in
 
 ## Outside CI scope
 
-- SQL execution against configured databases belongs to DB DevOps or CD. It returns to CI scope only for confirmed ephemeral test-database setup or validation. See [the SQL scope note](out-of-ci-scope/16-sql-task.md).
+- SQL execution against configured databases belongs to DB DevOps or CD. It returns to CI only for a confirmed ephemeral test-database case. See [the SQL scope note](out-of-ci-scope/16-sql-task.md).
 - UrbanCode Deploy and XebiaLabs XL Deploy or Digital.ai Deploy belong to CD migration planning.
 - Veracode, Sonar, and Checkmarx belong to STO/security planning.
 

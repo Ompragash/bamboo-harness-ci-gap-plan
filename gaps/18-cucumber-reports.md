@@ -18,17 +18,17 @@ Cucumber runner produces report
 
 ## Harness implementation
 
-Recommendation: use native Harness JUnit reporting when the Cucumber runner can emit JUnit; harden the existing `drone-cucumber` plugin only when the customer's JSON thresholds or tag behavior require it.
+Recommendation: use the native Run step that executes Cucumber and ingest its JUnit output. No Cucumber plugin is required unless legacy JSON thresholds or tag behavior are POC requirements.
 
 The preferred flow is:
 
 ```text
-Cucumber runner in Harness language runtime
+Cucumber Run/Test step with its explicit language image
 -> JUnit report
 -> Harness native test reporting
 ```
 
-If legacy Cucumber JSON processing is required, Harness publishes a repaired Harness Cucumber Results plugin image based on the community repository. Required changes are:
+If legacy Cucumber JSON processing is required, Harness publishes a repaired fixed image, `harness/drone-cucumber:windows-<ltsc>`, and references it explicitly in a separate Plugin step. Settings configure report behavior; they do not select another runtime image. Required changes are:
 
 - apply exclude patterns correctly;
 - implement recursive `**` globs;
@@ -48,7 +48,7 @@ The plugin remains a parser and gate. It does not execute Cucumber, generate Jir
 
 ## Customer position
 
-- Harness can display Cucumber scenarios through native JUnit reporting.
+- Harness can display Cucumber scenarios from a Run/Test step through native JUnit reporting.
 - Harness will repair and maintain the existing community parser only if legacy JSON gates are required.
 - The Cucumber parser will not duplicate test execution or qTest publication.
 

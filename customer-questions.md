@@ -1,22 +1,22 @@
 # Customer questions for the Windows POC
 
-These eight answers determine which Harness-owned runtime profiles and plugins must be built for the POC.
+These eight answers determine the explicit Harness image tags, templates, and Plugin images required for the POC.
 
-1. Which capabilities in this plan are hard POC acceptance blockers, and can you provide one exported Bamboo task configuration plus a minimal representative project/report for each blocker?
+1. Which capabilities are hard POC acceptance blockers, and can you provide one exported Bamboo task plus a minimal representative project/report for each blocker?
 
 2. Which Windows Server LTSC version, container isolation mode, and CPU architecture will the Kubernetes worker nodes use?
 
-3. Which exact JDK versions and Java distributions are required, and is JDK 7 a hard POC requirement?
+3. Which exact JDK, Maven, Ant, and Groovy combinations are active, and is JDK 7 a hard POC requirement?
 
-4. Which Maven, Ant, and Groovy versions are required; which Maven repositories contain `mvnw.cmd`; and which Java build task inputs are actively used?
+4. Is reproducing Bamboo's structured Maven/Ant form a hard acceptance requirement, or is an approved native Run Step Template with explicit image and command inputs acceptable?
 
-5. Which exact Node/npm pairs are required, which can be upgraded, and do any projects depend on global gulp, grunt, bower, or native-module Build Tools?
+5. Which exact Node/npm pairs are required, which can be upgraded, and do any projects require global gulp/grunt/bower or native-module Build Tools?
 
 6. Which solution/project types, MSBuild versions, Visual Studio workload/component IDs, targeting packs, SDKs, architectures, and `devenv.exe` operations are hard POC requirements?
 
 7. Which NUnit/MSTest runners, frameworks, adapters, filters/settings, report formats, and Windows Test Intelligence behavior are required?
 
-8. Can builds access approved public sources, or must packages use internal mirrors/proxy/private CA; and are non-production JFrog and qTest tenants available for integration testing?
+8. Which JFrog, Cucumber, warnings, POM, and qTest behaviors are POC blockers; are test tenants available; and must runtime/package downloads use internal mirrors, proxy, or private CA?
 
 ## Requested evidence
 

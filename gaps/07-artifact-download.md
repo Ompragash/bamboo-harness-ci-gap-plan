@@ -21,6 +21,8 @@ Bamboo producer build
 
 Recommendation: use the shared Harness workspace inside one CI stage and an immutable artifact repository contract across stages or pipelines.
 
+Workspace sharing and pipeline orchestration are native Harness behavior. A separate Run or Plugin image is used only when the selected external repository integration requires one, such as the repaired Artifactory Plugin image.
+
 For a single stage, no download component is needed because steps share the stage workspace. For separate pipelines, the producer publishes to JFrog or another Harness-supported repository and returns the immutable artifact version and digest. Pipeline chaining or a trigger passes those values to the consumer, which downloads and verifies the exact artifact.
 
 ```text

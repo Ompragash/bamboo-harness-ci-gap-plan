@@ -19,13 +19,13 @@ Bamboo test task produces JUnit XML
 
 ## Harness implementation
 
-Recommendation: build a Harness qTest Publisher plugin in a small Harness-maintained Windows integration image.
+Recommendation: build a Harness qTest Publisher plugin as one fixed Harness-maintained Windows integration image. API authentication, object mapping, submission, polling, and outputs justify a Plugin step.
 
 The plugin runs after Harness has ingested the JUnit report. It validates the endpoint and result glob, resolves the selected qTest objects, submits the JUnit results, waits for a terminal submission state when the API is asynchronous, and returns the qTest submission ID, state, and URL as Harness outputs.
 
 ```text
 Harness test step produces and ingests JUnit
--> Harness qTest Publisher
+-> Plugin step references harness/qtest-publisher:windows-<ltsc>
 -> qTest project/release/environment lookup
 -> submit results and wait for status
 -> Harness outputs and configured failure result
@@ -33,7 +33,7 @@ Harness test step produces and ingests JUnit
 
 Initial inputs: endpoint, authentication secret, project, release, optional environment, JUnit glob, suite-versus-test-case grouping, and fail-on-publication-error. Proxy/private CA, bounded retry for documented transient errors, idempotency, timeout, cancellation, and secret-safe logs are required.
 
-Harness builds, signs, scans, publishes, tests, and maintains the plugin image. Implementation starts only after a non-production qTest tenant proves the customer API and mapping contract.
+The pipeline references the Plugin image tag explicitly. qTest settings are passed to that image and do not affect image selection. Harness builds, signs, scans, publishes, tests, and maintains it. Implementation starts only after a non-production qTest tenant proves the customer API and mapping contract.
 
 ## What we still need to confirm
 

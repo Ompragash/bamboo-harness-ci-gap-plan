@@ -2,58 +2,57 @@
 
 ## Customer need
 
-The customer runs Node, npm, gulp, grunt, and bower tasks on Windows and lists broad version coverage. Harness must provide the required Node runtime, package-manager command, working directory, environment, registry credentials, dependency cache settings, and project commands in Windows containers.
+The customer runs Node, npm, gulp, grunt, and bower tasks on Windows and describes the version requirement as “all versions.” Harness needs the actual POC Node/npm pairs before defining the supported set.
 
-The plan must avoid one image per npm version and should not globally package historical frontend tools unless an active project requires them.
+The solution must provide the runtime, registry credentials, working directory, environment, dependency-cache settings, commands, and reports in Windows containers.
 
 ## How Bamboo handles it
 
-Bamboo administrators install Node versions on long-lived Windows agents and register executable capabilities. Bamboo schedules the task on an agent with the selected Node capability and derives npm from that Node installation.
+Bamboo administrators install Node versions on long-lived Windows agents and register executable capabilities. Tasks select the Node capability, and Bamboo schedules the job on an agent with that version. npm comes from the selected Node installation.
 
-The public plugin source shows Node and npm command/argument tasks, working directory and environment handling, an optional isolated npm cache, and repository-relative gulp, grunt, and bower executables. Bamboo expects those frontend tools to be project dependencies rather than installing them for every task.
+The Bamboo plugin supplies command, arguments, working directory, environment, optional npm cache isolation, and repository-relative gulp, grunt, or bower execution. It does not provide a remote API integration.
 
 ```text
-Bamboo selects Windows agent with Node/npm already installed
--> Node/npm task receives command, arguments, workdir, and environment
--> project-local tools run
--> result returns to Bamboo
+Bamboo task requires Node capability
+-> matching Windows agent is selected
+-> node/npm or project-local tool executes
 ```
 
 ## Harness implementation
 
-Recommendation: build a Harness Node plugin backed by Harness-maintained Windows Node runtime profiles.
+Recommendation: use Harness-maintained Windows Node images through native Run steps. Do not build a Node plugin for the POC.
 
-Harness packages only the supported Node major versions required for the POC, with each runtime's bundled npm and the plugin launcher already installed. The user chooses a supported Node profile and command; the Harness abstraction resolves the internal image.
+Harness publishes one explicit tag for each approved Node major or exact legacy pair, for example `harness/windows-node:20-<ltsc>`. Each image contains Node, its bundled npm, PowerShell, certificates/base utilities, and the native-build prerequisites approved for that profile. The pipeline selects the tag directly in the Run step.
 
 ```text
-Harness Node Plugin
--> Harness Windows Node profile
--> npm ci / npm run / npx
--> project-local gulp/grunt/bower when required
--> Harness logs, reports, and outputs
+Harness Run step
+-> explicit harness/windows-node:<approved-major> image
+-> npm ci && npm run build
+-> Harness logs, outputs, reports, and dependency cache
 ```
 
-Proposed inputs: Node profile, npm command or package script, arguments, working directory, environment, registry secret, cache path/key, and report paths. Cache Intelligence can cache npm dependencies using the lockfile; it is not used to install or cache the Node runtime.
+A reusable Run Step Template standardizes registry secrets, command, arguments, workdir, environment, Cache Intelligence path/key, and report paths. Project-local package scripts and `npx` are preferred. Harness does not globally install gulp, grunt, or bower unless an active project proves that requirement.
 
-Harness should prefer `npm ci`, package.json scripts, and `npx` or `node_modules/.bin`. It should not globally install gulp, grunt, or bower by default. Old Node/npm pairs and globally installed legacy tools require an explicit Harness support decision based on security status, Windows-container compatibility, and redistribution.
+One image containing every Node release is not proposed. Separate tags make the selected runtime clear and avoid retaining EOL versions and vulnerabilities in every pull. npm normally follows the Node distribution. Exact npm pinning or native modules that need Python/MSBuild require a bounded exception profile after discovery.
 
 ## What we still need to confirm
 
 - Which exact Node/npm pairs are hard POC requirements?
-- Which commands are package scripts versus global gulp/grunt/bower tasks?
-- Do native modules require Python, MSBuild, or a Visual Studio workload?
-- Which registry, proxy/private CA, and lockfile/cache behavior is required?
+- Which commands use package scripts versus global gulp, grunt, or bower?
+- Do native modules require Python, MSBuild, or Visual Studio workloads?
+- Which registry, proxy/private CA, lockfile, and cache behavior is required?
 
 ## Customer position
 
-- Harness will provide structured Node execution on Windows Kubernetes.
-- Supported Node runtimes will be packaged and maintained by Harness.
-- Harness will not create an image for each npm patch version.
-- Legacy Node/npm and global tooling require explicit support decisions.
+- Node uses native Run steps with explicit Harness-owned image tags.
+- Harness maintains only the Node versions selected for the POC.
+- npm follows the selected Node image unless exact pinning is proven necessary.
+- No dedicated Node plugin is required.
 
 ## Sources
 
-- [Atlassian Node.js and Bamboo guide](https://confluence.atlassian.com/display/BAMBOO0800/Getting%2Bstarted%2Bwith%2BNode.js%2Band%2BBamboo)
+- [Bamboo Node.js guide](https://confluence.atlassian.com/display/BAMBOO0800/Getting%2Bstarted%2Bwith%2BNode.js%2Band%2BBamboo)
 - [Bamboo Node plugin source](https://bitbucket.org/atlassian/bamboo-nodejs-plugin/)
+- [Harness Run step](https://developer.harness.io/docs/continuous-integration/use-ci/run-step-settings/)
 - [Node.js release schedule](https://github.com/nodejs/Release)
 - [Harness Cache Intelligence](https://developer.harness.io/docs/continuous-integration/use-ci/caching-ci-data/cache-intelligence/)

@@ -23,6 +23,8 @@ The processor saves teams from configuring every Bamboo plan link manually, but 
 
 Recommendation: represent the active graph explicitly with Harness pipeline chaining, triggers, ordered stages, and immutable artifact inputs.
 
+This is a native management-plane design. It does not require a Run or Plugin step image to discover or modify the pipeline graph during execution.
+
 For each active dependency, the producer publishes an artifact version and digest. A completion trigger or pipeline chaining starts the consumer and passes the exact version. The consumer downloads that version rather than performing an untracked “latest successful” lookup.
 
 ```text

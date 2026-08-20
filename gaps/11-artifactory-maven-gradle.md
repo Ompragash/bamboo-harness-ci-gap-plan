@@ -17,7 +17,7 @@ Bamboo selects agent with Java + Maven/Gradle
 
 ## Harness implementation
 
-Recommendation: repair and productize the existing `drone-artifactory` codebase using Harness-owned Windows images built from the shared Java runtime family.
+Recommendation: repair and productize the existing `drone-artifactory` codebase as explicitly versioned Windows Plugin images. Artifactory authentication, repository configuration, metadata collection, and build-info publication justify a Plugin step.
 
 The plugin already contains Maven, Gradle, JFrog CLI, build-info, direct authentication, PEM CA, and Windows image paths. The supported version must make these changes:
 
@@ -30,15 +30,17 @@ The plugin already contains Maven, Gradle, JFrog CLI, build-info, direct authent
 - document that the Plugin-step connector pulls the image, while JFrog credentials come from explicit Harness secrets.
 
 ```text
-Harness Artifactory Maven/Gradle Plugin
--> Harness Windows Java profile
+Harness Plugin step
+-> explicit harness/drone-artifactory:windows-java17-<tool>-<ltsc> image
 -> wrapper or supported build tool
 -> JFrog resolver/deployer configuration
 -> build-info published to Artifactory
 -> Harness logs and outputs
 ```
 
-The POC needs only the Java profile and Maven/Gradle versions actually used. Harness should not maintain three Windows variants merely because Dockerfiles exist, and should not create a separate Artifactory plugin.
+Each published tag contains the plugin binary, pinned JFrog CLI, one JDK, and the supported Maven or Gradle fallback for that tag. Repository `mvnw.cmd` or `gradlew.bat` remains preferred where approved. The pipeline chooses the complete image tag explicitly; a plugin setting does not cause Harness to replace it with another Java image.
+
+The POC needs only the JDK and Maven/Gradle combinations actually used. Tags derive from the shared Java image layers, but they are complete plugin images. Harness should not publish variants merely because Dockerfiles exist and should not create a second Artifactory codebase.
 
 ## What we still need to confirm
 
@@ -50,7 +52,7 @@ The POC needs only the Java profile and Maven/Gradle versions actually used. Har
 ## Customer position
 
 - Harness will extend the existing Artifactory integration rather than build a duplicate.
-- Plugin and Java runtime images will be built, secured, and maintained by Harness.
+- Complete Plugin images and their Java/toolchain contents will be built, secured, and maintained by Harness.
 - Maven/Gradle wrappers are preferred, and JFrog credentials remain Harness secrets.
 - The POC targets only the confirmed Windows LTSC and build-tool profiles.
 

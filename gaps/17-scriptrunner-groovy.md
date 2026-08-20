@@ -2,56 +2,54 @@
 
 ## Customer need
 
-The customer runs Groovy automation through ScriptRunner. Some scripts may be portable build utilities; others may import Bamboo classes, use injected Bamboo objects, or change Bamboo plans and variables.
-
-Harness must run portable scripts in Windows containers and clearly identify Bamboo-coupled scripts that require a behavior rewrite.
+The customer runs Groovy automation through ScriptRunner. Portable scripts need a Groovy/JDK environment, arguments, variables, secrets, exit handling, and declared outputs. Scripts that call Bamboo services or APIs require a behavior rewrite rather than only a runtime replacement.
 
 ## How Bamboo handles it
 
-ScriptRunner executes Groovy inside or alongside the Bamboo application. A generic script can use the installed Groovy/JDK runtime, task variables, arguments, and exit status. A Bamboo-specific script can also call Bamboo services and APIs that do not exist outside Bamboo.
+ScriptRunner executes Groovy inside or alongside Bamboo. Generic scripts use the available Groovy/JDK runtime and task variables. Bamboo-specific scripts can import Bamboo classes, use injected objects, and change plans or other server state.
 
 ```text
-Bamboo agent/server with Groovy and Bamboo APIs
--> ScriptRunner supplies script, variables, and bindings
--> script executes
--> process result or Bamboo-side change is returned
+Bamboo/agent provides Groovy and Bamboo bindings
+-> ScriptRunner supplies script, arguments, and variables
+-> script executes or changes Bamboo state
 ```
 
-ScriptRunner for Bamboo was retired in December 2022 and support ended in May 2023.
+ScriptRunner for Bamboo was retired in December 2022, and support ended in May 2023.
 
 ## Harness implementation
 
-Recommendation: provide a thin Harness Groovy wrapper on the Harness-maintained Windows Java runtime family.
+Recommendation: execute portable Groovy scripts through a native Run step using the explicit Harness Windows Java build image. Do not build a Groovy plugin.
 
-Each supported Java profile includes one supported Groovy runtime layer and the wrapper. The user selects the Java profile, script file, arguments, environment, secrets, and declared outputs. The Harness abstraction selects the internal image.
+The same `harness/windows-java-build:<jdk-tag>` family used for Maven and Ant contains one supported Groovy release. The pipeline references the required JDK tag directly and runs the repository script.
 
 ```text
-Harness Groovy Wrapper
--> Harness Windows Java profile with supported Groovy
--> repository Groovy script + arguments
+Harness Run step
+-> explicit harness/windows-java-build:temurin17 image
+-> groovy .\ci\task.groovy <arguments>
 -> exit status and declared Harness outputs
 ```
 
-The wrapper does not emulate Bamboo APIs. Portable scripts run directly. Scripts that call Bamboo plans, variables, repositories, deployments, or server services are rewritten using Harness outputs, templates, pipeline chaining/triggers, repository connectors, or reviewed Harness APIs.
+A reusable Run Step Template standardizes script path, arguments, environment, secrets, output variables, and failure behavior. A Groovy plugin would only wrap the same process invocation and would not recreate the valuable Bamboo-specific APIs.
 
-Harness should support only the Groovy/JDK pairs required for the POC. The Java runtime is already in the image; no JDK or Groovy installation occurs during the pipeline. A separate Groovy runtime family is unnecessary.
+Portable scripts run directly. Scripts that use Bamboo plans, repositories, deployments, server services, or injected variables are rewritten using Harness outputs, templates, pipeline chaining/triggers, connectors, or reviewed Harness APIs. Only the Groovy/JDK pairs selected for the POC are packaged; no runtime installation occurs during execution.
 
 ## What we still need to confirm
 
-- Which scripts are active POC blockers?
-- Which Groovy/JDK versions are required?
-- Which scripts import Bamboo classes or use Bamboo-injected objects/APIs?
+- Which scripts are hard POC blockers?
+- Which Groovy/JDK combinations are required?
+- Which scripts import Bamboo classes or use injected Bamboo APIs?
 - Which outputs or external side effects must be preserved?
 
 ## Customer position
 
-- Harness will provide a governed Groovy wrapper on its Java runtime family.
-- Portable scripts can run directly in Windows Kubernetes.
-- Bamboo-coupled scripts will be rewritten around Harness capabilities, not emulated.
-- Supported Groovy/JDK pairs will be packaged and maintained by Harness.
+- Portable Groovy uses a native Run step with an explicit Harness-owned Java build image.
+- No Groovy plugin is required.
+- Bamboo-coupled scripts are rewritten around Harness capabilities, not emulated.
+- Supported Groovy/JDK pairs are bounded by the POC inventory.
 
 ## Sources
 
 - [ScriptRunner for Bamboo retirement](https://www.scriptrunnerhq.com/atlassian-apps/bamboo/scriptrunner-for-bamboo)
-- [Apache Groovy installation](https://groovy-lang.org/install.html)
-- [Harness Run step templates](https://developer.harness.io/docs/platform/templates/run-step-template-quickstart/)
+- [Apache Groovy command-line tool](https://groovy-lang.org/groovy.html)
+- [Harness Run step](https://developer.harness.io/docs/continuous-integration/use-ci/run-step-settings/)
+- [Harness Run Step Templates](https://developer.harness.io/docs/platform/templates/run-step-template-quickstart/)

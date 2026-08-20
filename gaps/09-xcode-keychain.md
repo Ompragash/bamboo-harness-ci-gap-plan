@@ -19,12 +19,12 @@ Bamboo selects macOS agent with Xcode and keychain
 
 ## Harness implementation
 
-Recommendation: run this capability on a Harness-managed macOS execution environment with an ephemeral-keychain template.
+Recommendation: use a native Run step on a Harness-managed macOS execution environment with an ephemeral-keychain template. No Windows or keychain plugin is required.
 
 The template creates a temporary keychain, imports the certificate/private key and provisioning profile from Harness secrets, configures keychain search/access settings, executes Xcode signing, and always locks and deletes the temporary keychain.
 
 ```text
-Harness macOS runner with Xcode 14.3
+Harness Run step on macOS runner with Xcode 14.3
 -> create temporary keychain
 -> import non-production signing identity/profile
 -> xcodebuild or codesign

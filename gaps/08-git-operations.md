@@ -17,18 +17,18 @@ Bamboo checkout with repository credentials
 
 ## Harness implementation
 
-Recommendation: provide a governed Harness Git mutation template using a Harness-maintained Windows utility runtime that includes a pinned Git for Windows release.
+Recommendation: use a native Run step and governed template with an explicit Harness-maintained Windows utility image containing pinned Git for Windows. A Git plugin is not required.
 
 The template exposes only supported operations and validates the expected base SHA, ref name, signing mode, identity, and push policy. It uses the Harness codebase checkout and a scoped connector or short-lived token. It never logs credentials and does not allow silent force-push.
 
 ```text
 Harness codebase checkout
--> Harness Windows utility runtime with Git
+-> Run step with explicit harness/windows-ci-utility:<ltsc> image
 -> governed commit/tag/branch/push operation
 -> remote ref + SHA returned as Harness outputs
 ```
 
-Proposed inputs: operation, ref, expected SHA, commit/tag message, author identity, signing requirement, remote, and push mode. Standard Git behavior does not require a new Drone plugin. The versioned Harness template provides the structured experience and hides command details.
+Template inputs are operation, ref, expected SHA, commit/tag message, author identity, signing requirement, remote, and push mode. Standard Git behavior does not require a new Drone plugin. The pipeline references the utility image directly, and the versioned template provides the structured experience without copying commands into every pipeline.
 
 ## What we still need to confirm
 
@@ -38,7 +38,7 @@ Proposed inputs: operation, ref, expected SHA, commit/tag message, author identi
 
 ## Customer position
 
-- Harness can provide governed Git writes without embedding scripts in every pipeline.
+- Harness can provide governed Git writes through a native Run step without duplicating scripts across pipelines.
 - Git for Windows will be packaged and maintained by Harness.
 - Repository credentials remain scoped Harness secrets/connectors.
 - Force-push and signing behavior will follow the customer's repository policy.

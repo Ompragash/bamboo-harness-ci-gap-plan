@@ -2,55 +2,56 @@
 
 ## Customer need
 
-The customer runs Ant builds on Windows. Harness must provide a structured task for selecting a supported Java profile, build file, targets, properties, `ANT_OPTS`, working directory, environment, and JUnit report paths.
-
-Ant must reuse the same Harness-owned Java runtime family as Maven. Harness should not create a separate JDK installation system or a Java x Ant image matrix.
+The customer runs Ant builds on Windows. Harness must support the required JDK and Ant versions, build file, targets, properties, `ANT_OPTS`, working directory, environment, and JUnit report paths in Kubernetes Windows containers.
 
 ## How Bamboo handles it
 
-Bamboo administrators install JDK and Ant versions on long-lived Windows agents and register them as capabilities. The Ant task requires the selected capabilities, so Bamboo assigns the job to an agent that already contains both tools.
+Bamboo administrators install JDK and Ant on long-lived agents and register both as capabilities. The Ant task selects those capability labels, which become job requirements and restrict execution to matching agents.
 
-The task adds a structured build file, targets, arguments, environment, working directory, and JUnit result configuration around the installed Ant executable.
+The task adds structured fields around the installed executable: build file, targets, arguments, environment, working directory, and JUnit results.
 
 ```text
-Bamboo selects Windows agent with JDK + Ant already installed
--> Ant task receives build.xml, targets, properties, and options
--> installed Ant runs
--> exit status and JUnit reports return to Bamboo
+Bamboo task requires JDK + Ant capabilities
+-> Bamboo selects a matching Windows agent
+-> task constructs the Ant command
+-> installed Ant runs and Bamboo collects results
 ```
 
 ## Harness implementation
 
-Recommendation: build a thin Harness Ant plugin on the Harness Windows Java runtime family.
+Recommendation: use the Harness-maintained Windows Java build image through a native Run step. Do not build an Ant plugin for the POC.
 
-The Harness step abstraction selects the internal Java 8, 11, 17, or 21 runtime profile. Each supported profile contains one Harness-supported Ant installation and the plugin launcher. The user chooses the Java profile and Ant task inputs, not an image tag.
+The pipeline explicitly references the tag containing the required JDK, for example `harness/windows-java-build:temurin17`. The same image family used for Maven contains one supported Ant distribution and Groovy. Keeping these relatively small Java build tools together avoids separate Maven, Ant, and Groovy image families while retaining one JDK per tag.
 
 ```text
-Harness Ant Plugin
--> Harness Windows Java 17 runtime with supported Ant
--> build.xml + clean test package
--> Harness logs and JUnit results
+Harness Run step
+-> explicit harness/windows-java-build:temurin17 image
+-> ant -f build.xml clean test package
+-> Harness logs, status, outputs, and JUnit report paths
 ```
 
-Proposed plugin inputs: Java profile, Ant version where more than one is supported, build file, targets, properties, arguments, `ANT_OPTS`, working directory, environment, and report paths.
+A reusable Run Step Template standardizes the image tag, command pattern, working directory, environment, secrets, and report paths. Ant properties and targets remain normal command inputs. This reproduces the useful Bamboo behavior without maintaining plugin code that only assembles an Ant CLI.
 
-The existing `drone-ant` PR is not ready to use. It is unmerged, exposes only goals, installs unpinned JDK 8 and Ant packages, and has a failing empty-goals test. Harness can reuse any useful command-building code, but the supported plugin needs the full Ant task contract, pinned Harness-owned images, tests, signing, and release ownership.
+The open `drone-ant` PR does not change this recommendation. It is unmerged, exposes only goals, installs unpinned JDK 8 and Ant packages, and is not needed when the prepared image and Run template provide parity.
+
+An additional image tag is created only when an active project requires an incompatible Ant/JDK pair. Harness does not install Ant or Java during each pipeline execution.
 
 ## What we still need to confirm
 
-- Which Java/Ant versions are POC requirements?
-- Which build files, targets, properties, `ANT_OPTS`, and report paths are active?
+- Which JDK and Ant combinations are active POC requirements?
+- Which build files, targets, properties, and `ANT_OPTS` are used?
 - Are custom Ant distributions or third-party Ant tasks required?
 
 ## Customer position
 
-- Harness will provide Ant as a structured Windows Kubernetes task.
-- Ant will reuse Harness-maintained Java runtime profiles.
-- Common JDK and Ant binaries will already be present when the container starts.
-- Legacy Ant versions require an explicit Harness support decision.
+- Ant uses a native Run step with an explicit Harness-owned Java build image.
+- Maven, Ant, and Groovy share the same bounded image family.
+- A dedicated Ant plugin is not required for the POC.
+- Legacy tool combinations require an explicit support decision.
 
 ## Sources
 
-- [Atlassian Ant task](https://confluence.atlassian.com/display/BAMBOO/Ant)
+- [Bamboo Ant task](https://confluence.atlassian.com/display/BAMBOO/Ant)
+- [Bamboo executable capabilities](https://confluence.atlassian.com/display/BAMBOO/Defining%2Ba%2Bnew%2Bexecutable%2Bcapability)
+- [Harness Run step](https://developer.harness.io/docs/continuous-integration/use-ci/run-step-settings/)
 - [`drone-ant` PR 1](https://github.com/harness-community/drone-ant/pull/1)
-- [Eclipse Temurin supported platforms](https://adoptium.net/supported-platforms)

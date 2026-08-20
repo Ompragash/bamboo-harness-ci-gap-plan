@@ -17,18 +17,18 @@ compiler log or report files
 
 ## Harness implementation
 
-Recommendation: build a small Harness warnings parser plugin in the Harness-maintained Windows utility runtime.
+Recommendation: build a small Harness warnings parser plugin and publish it as a fixed Harness-maintained Windows utility image. Parsing, normalization, thresholds, and structured outputs justify a Plugin step.
 
 The first release supports only the customer's active formats. Build commands write or tee relevant output to deterministic files. The plugin reads those files, emits total and severity counts as Harness outputs, fails according to configured thresholds, publishes a bounded Markdown summary, and stores the complete normalized report as an artifact.
 
 ```text
 build tool writes log/report file
--> Harness Warnings Plugin
+-> Plugin step references harness/warnings-parser:windows-<ltsc>
 -> normalized counts + threshold
 -> Harness summary and full report artifact
 ```
 
-Proposed inputs: parser type, input file globs, encoding, source root/repository, severity mapping, threshold values, and summary limit. The image contains the parser and required runtime when it starts; no tool download or persistent runtime cache is used.
+Plugin settings are parser type, input file globs, encoding, source root/repository, severity mapping, threshold values, and summary limit. The Plugin step explicitly references the Windows image tag; settings do not select another image. The image contains the parser and required runtime when it starts.
 
 If the customer requires native clickable file/line findings, new-warning baselines, retention, or trend views, that is a separate Harness result-ingestion and UI feature. The parser plugin can produce the data but cannot create a native product experience by itself.
 
@@ -40,7 +40,7 @@ If the customer requires native clickable file/line findings, new-warning baseli
 
 ## Customer position
 
-- Harness can provide parsing, thresholds, outputs, summaries, and report artifacts on Windows Kubernetes.
+- Harness can provide parsing, thresholds, outputs, summaries, and report artifacts through a fixed Windows Plugin image.
 - Harness will support only the formats confirmed for the POC.
 - Native file navigation and historical trends require a separate product decision if they are mandatory.
 

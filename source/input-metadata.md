@@ -49,3 +49,19 @@ The implementation review used the following read-only repository snapshots. Pub
 | `kameshsampath/drone-java-maven-plugin` | `f72fbd12e522cd70d73a1aac58c2c95fa41a57c5` |
 
 No implementation repository was modified as part of this planning work.
+
+## Runtime package-size snapshot
+
+The multi-JDK image decision used the Eclipse Adoptium API on 2026-08-20. The latest Windows x64 HotSpot JDK ZIPs returned for the standard candidates were:
+
+| Java | Package bytes | Approximate MB |
+| --- | ---: | ---: |
+| 8 | 106,454,869 | 106 |
+| 11 | 199,447,338 | 199 |
+| 17 | 190,818,901 | 191 |
+| 21 | 205,069,442 | 205 |
+| Total | 701,790,550 | 702 |
+
+These are compressed JDK archives only. They exclude extraction growth, Windows base layers, and build/plugin tooling, so the plan does not propose one image containing all four JDKs. Source: [Adoptium API](https://api.adoptium.net/q/swagger-ui/).
+
+For the combined Java build-image decision, the reviewed Apache Maven 3.9.16, Ant 1.10.17, and Groovy 4.0.33 Windows-compatible ZIP distributions were approximately 9.4 MB, 10.3 MB, and 30.3 MB respectively, or about 50 MB combined before extraction. These values establish relative packaging cost only; supported releases are pinned during implementation. Sources: [Apache Maven downloads](https://maven.apache.org/download.cgi), [Apache Ant downloads](https://ant.apache.org/bindownload.cgi), and [Apache Groovy downloads](https://groovy.apache.org/download.html).

@@ -19,19 +19,19 @@ Bamboo selects agent with Node + npm
 
 ## Harness implementation
 
-Recommendation: add npm build behavior to the existing Harness Artifactory plugin and run it on Harness-maintained Node runtime profiles.
+Recommendation: add npm build behavior to the existing Artifactory plugin and publish an explicit Windows Plugin image tag for each approved Node/npm pair.
 
 The Harness Node profile contains a supported Node release and its bundled npm before the container starts. The Artifactory plugin configures the JFrog server and npm repositories, runs `npm ci`, `npm run`, or the confirmed publish operation, associates the build name/number, and publishes build-info.
 
 ```text
-Harness Artifactory npm Plugin
--> Harness Windows Node runtime
+Harness Plugin step
+-> explicit harness/drone-artifactory:windows-node20-<ltsc> image
 -> npm install/run/publish through Artifactory
 -> JFrog build-info
 -> Harness logs and outputs
 ```
 
-The user selects a supported Node profile, not an npm image. Harness should not create an image for every npm 5/6 patch version. Exact legacy Node/npm pairs are added only after a security, redistribution, Windows-container, and support review. If the required pair cannot be maintained safely, it is not included in the standard Harness-supported set.
+Each tag contains the plugin, pinned JFrog CLI, one Node release, and its compatible npm. The pipeline selects the complete image tag explicitly; plugin settings configure JFrog/npm behavior but do not replace the image. Harness should not create a tag for every npm 5/6 patch version. Exact legacy pairs are added only after a security, redistribution, Windows-container, and support review. If a pair cannot be maintained safely, it is unsupported.
 
 The existing `drone-npm` plugin publishes packages to npm registries but does not provide JFrog build-info, so it does not replace this work.
 
@@ -44,7 +44,7 @@ The existing `drone-npm` plugin publishes packages to npm registries but does no
 
 ## Customer position
 
-- Harness will extend the existing Artifactory plugin and reuse Harness Node runtime profiles.
+- Harness will extend the existing Artifactory plugin and publish complete, explicitly selected Node-based Plugin images.
 - Harness will not maintain an image for each npm patch version.
 - Old Node/npm pairs require explicit support decisions before the POC commitment.
 - JFrog credentials and registry settings remain governed Harness secrets and plugin inputs.
