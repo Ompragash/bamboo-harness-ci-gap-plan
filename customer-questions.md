@@ -1,79 +1,78 @@
-# Customer questions
+# Customer discovery questions
 
-These questions are deduplicated across the 19 briefs. Start with the two POC priority questions below. Capability-specific P0 questions become active only for rows the customer marks as POC must-have; this avoids sending the full list as one undifferentiated questionnaire. P1 questions are needed before implementation. P2 questions refine support and maintenance choices.
+## Questions needed now
 
-## POC priority and operating model
+These eight questions are the minimum first-call set. Each answer changes the POC scope, architecture, or support commitment.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | For each capability, how many active plans use it, is it a POC must-have or deferrable item, which representative plan should be migrated first, and what observable outcome defines acceptance? | All rows | Prevents equal investment in historical or low-value tasks and gives each proof a concrete outcome. |
-| P0 | Is a governed, versioned Harness Run/Test template an acceptable native experience for standard build/vendor tools, or is a dedicated Plugin-step form a POC requirement? | Maven, Ant, MSBuild, Node, Groovy, Git, SQL | The answer can change image/template work into a larger plugin-UX request even when the execution behavior is the same. |
+1. Which capabilities in this plan are POC acceptance blockers, and can you provide one exported Bamboo task configuration plus one representative repository, report, or non-secret fixture for each blocker?
 
-## Windows and toolchain
+   This prevents qualification work for inactive tasks and gives engineering the actual configured fields rather than a plugin name.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Which Windows Server LTSC version and CPU architecture should be the first POC target, and which combinations are later requirements? | All Windows rows | Windows host/image compatibility and binary availability differ across 2019, 2022, 2025, AMD64, and ARM64. |
-| P0 | Provide the active Maven, Ant, JDK, Node, npm, Groovy, and wrapper version combinations from the exported plans. | Maven, Ant, Node, Groovy, POM, Artifactory | Replaces “all versions” with a finite image and smoke-test matrix. |
-| P0 | Which MSBuild projects are SDK-style .NET, full .NET Framework, C++, installer, database, or devenv-only, and which workloads/targeting packs do they require? | MSBuild, NUnit, MSTest | Determines whether a Windows container is viable and what Build Tools components are required. |
-| P1 | Are private package repositories, corporate proxy, custom CA, paths with spaces, long paths, or Windows integrated authentication required? | Images, Artifactory, SQL, tests | These are material Windows acceptance cases. |
-| P0 | Do Node projects compile native modules, and are gulp, grunt, or bower installed globally or declared in each repository? | Node, MSBuild | Native modules can add Build Tools and materially change the image and estimate; local package tools avoid global image coupling. |
-| P0 | Provide the active Groovy scripts and identify Bamboo API imports, injected objects, Grape dependencies, and required outputs. | ScriptRunner Groovy | Separates direct execution from Bamboo-specific rewrites. |
+2. Which listed versions must work in the POC, which can move to a supported modern version, and which must remain legacy after migration?
 
-## Testing
+   This separates the POC from a permanent promise for JDK 7, old Node/npm, old Visual Studio, and retired tools.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Which NUnit/MSTest runner, runtime, adapters, filters, settings files, and representative modern/legacy projects are active? | NUnit, MSTest, MSBuild | Defines native Test/TI versus legacy runner/report qualification. |
-| P0 | For Cucumber, provide the plugin version, report format, globs, tag/threshold/fail-on-no-tests settings, and whether Jira actions or a Bamboo report tab are required. | Cucumber | Selects native JUnit ingestion versus bounded plugin repair or separate integration work. |
-| P0 | Is Test Intelligence required for the POC, or is complete result ingestion and display sufficient? | NUnit, MSTest | TI has a narrower framework/platform compatibility matrix and changes whether the native path meets the POC outcome. |
+3. For Java and Node builds, what exact runtime pairs and sources are used: JDK distribution/version, Maven or Ant version, Node/npm version, repository wrappers, custom distributions, and internal mirrors?
 
-## Artifact management
+   Version alone is not enough to choose a safe runtime source or decide wrapper-first versus tool provisioning.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Provide one exported Artifactory Maven/Gradle, generic-resolve, and npm/build-info task plus JFrog version, auth model, repositories, and a non-production tenant. | All Artifactory rows | Determines qualification versus exact plugin extension and enables E2E proof. |
-| P0 | For Bamboo Artifact Download, identify producer plans, branch/build-selection rules, artifact names, destination, and approved target repository/version contract. | Artifact Download, dependency processor | Separates same-stage workspace sharing from immutable cross-pipeline handoff. |
-| P1 | Which build-info project/module, environment, scan, promotion, cleanup, file-spec, no-match, and retry behaviors are required? | Artifactory | Defines acceptance beyond core build and download behavior. |
+4. Can POC jobs reach approved public distribution sites, or must all runtimes and dependencies come through an internal Artifactory/mirror with a proxy or private CA?
 
-## SCM
+   This determines whether runtime provisioning is viable and how caches, checksums, and certificates must be designed.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Which tag, branch, commit, and push operations/remotes are active, and are signing, LFS, submodules, force-push, or protected-branch exceptions required? | Git operations | Defines the safe reusable template and credential model. |
+5. Which Visual Studio project types, Build Tools workloads, targeting packs, SDKs, architectures, and `devenv.exe` operations are required?
 
-## Database
+   The answer decides between a Windows container workload profile and a VM/full-Visual-Studio path.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Which database engines, drivers, authentication modes, script modes, transaction/delimiter behavior, output formats, and DACPAC/migration use are present? | SQL | Selects a database-specific image/template versus a multi-engine integration. |
-| P1 | Can required database drivers be redistributed, and is a non-production endpoint available? | SQL | Licensing and E2E access can block implementation. |
+6. For NUnit and MSTest, which runner executable, framework, adapter, filters/settings, output format, and Test Intelligence outcome are required?
 
-## Test management
+   Visual Studio labels do not identify the runner contract, and current Harness documentation does not confirm Windows C# Test Intelligence versions.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Provide one exported qTest task and confirm qTest version/URL, auth, project/release/build/cycle/environment/grouping mappings, JUnit glob, attachments, object-creation policy, and failure policy. | qTest | Defines the plugin API and result contract. |
-| P0 | Is a non-production qTest tenant and least-privilege service account available? | qTest | Required before implementation and E2E qualification of a result publisher. |
+7. Please export the active Artifactory tasks and the POM, Cucumber, and warnings configurations, including wrappers, repositories/file specs, build-info sequencing, POM expressions, result formats/globs, thresholds, and required UI outcome.
 
-## Other CI behavior
+   These fields decide whether existing plugin repair, native reporting, a template, or a different product abstraction is needed.
 
-| Priority | Question | Affects | Why we need it |
-| --- | --- | --- | --- |
-| P0 | Does the Maven dependency processor actively create/update cross-plan links, dependency blocking, or transitive scheduling, or is it only present with ordinary Maven dependency resolution? | Maven dependencies processor | Defines which relationships and blocking behavior the explicit Harness orchestration mapping must preserve. |
-| P0 | Which POM expressions, output names/prefixes/scopes, SNAPSHOT behavior, profiles, settings, and raw/effective POM semantics are used? | Maven POM parser | Selects existing-plugin qualification versus extension. |
-| P0 | Which warning parser formats, globs, thresholds, and UI outcome are required, including file/line navigation or trends? | Warnings parser | Selects a summary template versus platform work. |
-| P0 | For Xcode 14.3, is the keychain pre-provisioned or ephemeral, and how are certificates/profiles imported and cleaned up? | Xcode keychain | Defines the macOS template and runner qualification. |
-| P0 | Which active producer-consumer chain should be used for the POC demonstration? | Dependency processor, Artifact Download | Provides a bounded orchestration acceptance case. |
+8. For qTest, what product/version, authentication method, project/release/environment mapping, JUnit glob, grouping behavior, and failure policy are used, and is a non-production tenant available?
 
-## Requested evidence package
+   A test-tenant API proof is required before committing to a publisher plugin or estimate.
 
-The fastest useful response is a redacted export containing:
+## Evidence package requested once
 
-1. One active configuration for each P0 task family.
-2. One representative repository/project or minimal reproduction for each build/test family.
-3. One representative Cucumber/warnings/JUnit report file.
-4. Initial Windows LTSC and architecture.
-5. Non-production JFrog, database, and qTest access where those rows are POC requirements.
+- Bamboo Specs or configuration exports for the selected POC plans and tasks.
+- One sanitized successful log and one expected-failure log per selected capability.
+- Representative Java, Node, .NET, Ant, Groovy, POM, NUnit/MSTest, Cucumber, warning, and JUnit fixtures only for selected blockers.
+- Target Windows node OS/LTSC version, container isolation mode, and architecture.
+- Approved registry, proxy, private CA, mirror endpoints, and non-production JFrog/qTest access.
 
-Secrets and confidential source code are not required in the planning repository.
+Secrets, signing keys, production tokens, and proprietary source are not required. Redacted configuration and minimal reproductions are sufficient.
+
+## Questions needed before productization
+
+These should not block the first customer discussion.
+
+### Support and lifecycle
+
+- Which versions will Harness continuously qualify, which are best effort, and which are customer-provided legacy?
+- Who approves runtime licenses and distribution sources, especially Oracle or vendor-supported JDK 7?
+- What Windows LTSC, architecture, patch cadence, vulnerability response, SBOM, and signing policy will Harness own?
+- Which team owns each runtime resolver, image, template, and plugin release?
+
+### Runtime and cache contract
+
+- Which account-level mirrors and custom CA mechanisms should the resolver support?
+- Where will verified tool archives be cached, how are entries made immutable, and how are poisoned or revoked entries invalidated?
+- Is offline qualification a supported product mode or a customer-specific configuration?
+
+### Ecosystem contracts
+
+- Does Maven require global settings, toolchains, encrypted settings, custom local repository behavior, or publishing configuration beyond the POC?
+- Does Node require Corepack, npm overrides, native-module build dependencies, global binaries, or additional package managers?
+- Does Ant usage justify a product plugin after the shared Java provider exists?
+- Which Groovy scripts are portable, and which Bamboo-bound scripts require redesign?
+- Which Build Tools workload profiles merit maintained product images?
+
+### Results and integrations
+
+- Should legacy NUnit/MSTest/Cucumber conversion become one maintained cross-platform normalizer?
+- Do warnings require native file/line navigation, baseline comparison, trends, and retention?
+- Which qTest API versions, idempotency behavior, rate limits, attachments, object creation, and vendor support policy must the publisher maintain?

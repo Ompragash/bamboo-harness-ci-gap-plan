@@ -1,92 +1,155 @@
-# Cross-cutting CI plan
+# Cross-cutting CI architecture and delivery plan
 
-The 19 customer rows do not represent 19 independent engineering projects. This plan groups the shared work and keeps discovery, qualification, implementation, and conditional product work separate.
+## Architecture decision
 
-## Workstreams
+Harness should use a hybrid Windows toolchain model. A fixed image matrix is fast and reproducible but becomes unsustainable across the customer's Java, Node, Visual Studio, and legacy version combinations. A broad image reduces tags but increases image size, attack surface, conflicts, and patching cost. Runtime provisioning provides flexibility but needs a secure cache and mirror design. Customer images accelerate the POC but do not create a consistent supported product.
 
-| Workstream | Rows covered | Deliverable | Discovery | Estimate | Dependency |
+The chosen split is:
+
+```text
+Harness CI primitives
+|
++-- Shared Windows toolchain bootstrap
+|   +-- Java distributions and versions
+|   +-- Maven, Ant, Node, and Groovy archives
+|   +-- proxy, CA, mirror, verification, cache, PATH
+|
++-- Ecosystem contracts
+|   +-- Maven: product candidate
+|   +-- Node: product candidate
+|   +-- Ant: conditional thin contract, shared Java provider
+|   +-- Groovy: template-first, shared Java provider only if needed
+|
++-- Heavy immutable environments
+|   +-- Visual Studio Build Tools workload profiles
+|   +-- VM path for full Visual Studio or unsupported container workloads
+|
++-- Test-result layer
+|   +-- native Harness test reporting
+|   +-- runner-specific transform only where required
+|   +-- possible shared side-by-side normalizer after discovery
+|
++-- Structured integrations
+    +-- existing Artifactory plugin
+    +-- conditional Cucumber and POM utilities
+    +-- discovery-gated qTest publisher
+```
+
+The customer-facing task contract matters more than copying Bamboo's implementation. Bamboo generally selects an executable and JDK from preconfigured agent capabilities. It does not prove that runtime download belongs inside every replacement task. Harness can provide the same useful choice through a plugin, template, image, or customer-supplied runtime according to ecosystem cost.
+
+## Toolchain option comparison
+
+Ratings are qualitative because no customer benchmark or image registry measurement is available.
+
+| Dimension | Fixed images | Broad image | Dynamic plugin | Hybrid | Customer image |
 | --- | --- | --- | --- | --- | --- |
-| Windows POC image recipes for Java/Node/Groovy | Maven, Ant, Node.js, ScriptRunner Groovy; Maven runtime reused by POM work | One agreed LTSC recipe pattern; one actual customer pairing per Maven/JDK, Ant/JDK, Node, and Groovy/JDK family; smoke fixtures; reusable Run/Test templates | Exact tool versions, LTSC, proxy/CA, EOL policy | One engineering week of development for this single combined POC workstream; use the required 1 to 2 engineering week planning bucket when qualification contingency is included; estimates are not additive by row | Existing registry/build automation, Windows Kubernetes nodes, source owner |
-| .NET build and native testing qualification | MSBuild/Visual Studio, NUnit, MSTest | Workload inventory; smallest Build Tools/.NET images; Windows Test-step proof for modern projects; shared VSTest/NUnit Run template and report conversion where Test or legacy modes remain unqualified | Project types, workloads, targeting packs, runner/adapters, TI need | Discovery required before estimate; qualification first because current C# Windows versions are TBD | Representative projects, Microsoft installers, Windows host/image compatibility |
-| Build and artifact orchestration | Maven dependencies processor, Artifact Download | Explicit producer-consumer pattern using stages, pipeline chaining, triggers, immutable artifact version inputs, and repository-backed handoff | Active relationship map, latest-success selection, repository/version contract | <1 engineering week for a bounded runbook/template and one representative chain | Artifact repository, pipeline ownership, provenance model |
-| Governed Git template | Git operations | Versioned Git-for-Windows mutation template with persisted-credential and separate short-lived-token modes | Git signing/policy and write identity | <1 engineering week for standard operations | SCM write credentials and disposable repository |
-| macOS signing runbook | Xcode keychain | Ephemeral keychain/signing template and cleanup runbook on macOS | Keychain/certificate/profile flow | Qualification only when the runner and signing assets exist; <1 engineering week if a reusable template is needed | macOS runner and non-production signing material |
-| Warning result experience | Warnings parser | Bounded format parser, outputs, threshold gate, full report artifact, and Harness Markdown annotation | Parser formats and whether native file/line UI is required | Discovery required before estimate; likely 1 to 2 engineering weeks for a few known formats | Harness annotation limits; conditional product/UI contract |
-| Existing Artifactory plugin | Artifactory Maven/Gradle, generic download, npm/build-info | Repair RT proxy/validation/output gaps and conditional retry/thread behavior; qualify Maven/Gradle/download; select an npm/build-info extension only after mappings and vendor-CLI fit are known | Exported fields, output/retry need, JFrog version, wrappers, npm operations, Node pairs, test tenant | 2 to 4 engineering weeks for the combined bounded workstream; core repair/qualification is 1 to 2 and a selected npm extension is 1 to 2 | drone-artifactory ownership, published Windows images, JFrog tenant, CA/proxy |
-| Maven metadata plugin | Maven POM parser | Qualify drone-get-maven-version for version-only or extend it for confirmed GAV/custom/effective-POM mappings; reuse the Maven runtime without adding image effort | Exact expressions, output names/scopes, raw/effective behavior | Discovery required before estimate; <1 engineering week for version-only hardening or 1 to 2 for bounded extension | Maven image, private parent/settings fixture, repository ownership |
-| Cucumber result path | Cucumber reports | Prefer native JUnit ingestion; conditionally repair drone-cucumber for confirmed JSON thresholds/outputs | Format/version, globs, tags, thresholds, Jira behavior | Qualification only for native JUnit; conditional 1 to 2 engineering weeks for core plugin repair | Customer fixtures, plugin ownership, Windows Kubernetes |
-| Discovery-gated external integrations | SQL, qTest | Database-specific client image/template when one engine is sufficient; possible qTest API publishing plugin only after a test-tenant proof | Database engine/auth/semantics; qTest API, hierarchy, mappings, attachments | Discovery required before estimate for both; neither is included in the shared language-image estimate | Database test endpoint, driver licensing, qTest tenant/API/service account |
+| POC speed | High when an image exists | Medium | Medium | High | High |
+| Warm startup | High | Low to medium due to pull size | High with a warm tool cache | High for common versions | Depends on customer image |
+| Cold startup | High | Low | Low to medium | Medium to high | Depends on registry and size |
+| Reproducibility | High with immutable digests | High but conflicts are harder | High only with exact versions and verification | High | Customer-controlled |
+| Version breadth | Low to medium | Medium | High | High | High |
+| Legacy support | Expensive tag growth | Conflict-prone | Limited by legal/source availability | Customer fallback | High, customer-owned |
+| Proxy/offline | High if baked | High if baked | Requires mirror and cache design | High with prepackaged common tools and mirror support | Customer-controlled |
+| Security | Small immutable images can be strong | Largest attack surface | Strong only with allowlists, checksums, and cache integrity | Best balance | Customer-controlled |
+| Harness image maintenance | High | Medium but costly rebuilds | Low image count, higher bootstrap maintenance | Medium | Low for Harness |
+| Customer UX | Simple but many tags | Simple until versions conflict | Best structured selection | Best supported-version experience | Highest customer effort |
+| Long-term Harness cost | High across many versions | High servicing and vulnerability load | Medium shared-code cost | Medium | Low, with inconsistent experience |
 
-## Shared Windows image strategy
+## Ecosystem decisions
 
-The image work should use logical families, not one oversized container:
+| Ecosystem | Bamboo value beyond the command | POC path | Productized direction | Why |
+| --- | --- | --- | --- | --- |
+| Maven | Selects Maven and JDK capabilities; supplies POM, goals, environment, working directory, and test results | Customer image plus governed Maven inputs; use `mvnw.cmd` when present | Maven plugin contract with wrapper-first execution, selectable Java, controlled Maven fallback, settings, reports, and outputs | Structured selection is valuable and the Java matrix is large |
+| Ant | Selects Ant and JDK capabilities; supplies build file, targets, environment, working directory, and JUnit results | Customer image plus template | Thin Ant contract only if repeated use justifies it; reuse Java bootstrap | Ant invocation is simple, and independent JDK download logic would be wasteful |
+| Node | Selects Node capability; derives npm; supports Node/npm and project-relative gulp, grunt, and bower; optional isolated npm cache | Customer image plus package-script template | Node plugin contract with controlled runtime selection, package manager command, cache, and project-local tools | Exact runtime selection and cache behavior justify a contract; separate gulp/grunt/bower plugins do not |
+| Groovy | Unknown until scripts are exported; portable scripts need only Groovy/JDK, but scripts may call Bamboo APIs | Customer image plus Run template for one portable script | Keep template-first; share Java bootstrap only for portable scripts | A Groovy plugin cannot preserve Bamboo APIs and adds little for a normal script |
+| MSBuild | Selects installed MSBuild or `devenv.exe`; captures project/options/environment and uses an MSBuild response file | Qualify one customer workload profile | Maintained immutable Build Tools profiles or VM lane | Workloads, targeting packs, and licensing dominate; per-run Visual Studio installation is slow and unsafe |
 
-| Family | Contents | Reason for separation |
+## Shared Windows toolchain bootstrap
+
+The productized Maven and Node contracts, and any later Ant or Groovy contract, should call one bounded internal resolver rather than implement downloading separately. It is not intended to become a general Windows package manager.
+
+A tool request should contain an exact ecosystem, distribution when applicable, version, architecture, and source policy. The resolver returns an installed directory and environment additions. Maven and Gradle wrappers remain repository-owned and are verified according to repository policy.
+
+Required controls:
+
+- allowlisted HTTPS sources and optional account-level customer mirrors;
+- deterministic exact-version resolution, with no implicit `latest` in product flows;
+- checksums or publisher signatures pinned in trusted metadata;
+- no arbitrary remote installer execution by default;
+- bounded timeout and retry;
+- proxy and private CA support without secret values in logs;
+- atomic cache population and verification again on cache restore;
+- cache keys that include tool, distribution, version, OS, architecture, and digest;
+- a read-only shared cache where possible, with per-run extraction to avoid poisoning;
+- offline failure messages that identify the missing approved artifact;
+- telemetry for source, cache hit, resolved digest, and duration without credentials.
+
+Tool archives can be stored in an image layer for common supported versions, in a runner-local tool cache for warm self-managed runners, or in Harness cache with integrity checks. Maven and npm dependency caches are different data and use their own lockfile or project-based keys. A runtime cache must never trust only a friendly version string.
+
+## Version support classes
+
+| Class | Harness promise | Typical examples for this customer |
 | --- | --- | --- |
-| Java build | One JDK line plus Maven and/or Ant variants; Groovy variant can reuse the same base | JDK lifecycle and project wrappers determine compatibility |
-| Node | Node/npm only, plus CA/registry support | Node release cadence and legacy npm compatibility differ from Java |
-| .NET Build Tools | Exact .NET SDK or selected Visual Studio Build Tools workloads | Very large footprint and Windows/Visual Studio servicing constraints |
-| Database client | Only the confirmed vendor client and native auth libraries | Drivers, licensing, and authentication differ by engine |
-| Plugin runtime overlays | drone-artifactory JVM or Node variant, small qTest runtime if approved | Integration binaries should not force unrelated toolchains into language images |
+| Harness-supported | Harness owns provenance, qualification, patch/rebuild, and documented Windows compatibility | Current supported JDK distributions and Node LTS lines selected after discovery; current Maven/Ant; one or more current Build Tools profiles |
+| Compatibility or best effort | Generic mechanism can resolve or run the version, but Harness does not continuously qualify every combination | Less common Maven, Ant, Groovy, or interim Node lines from approved sources |
+| Customer-provided legacy | Customer supplies an approved image/archive and accepts EOL/licensing constraints | JDK 7, unsupported Visual Studio workloads, old Node/npm pairs, retired Bower/Scriptrunner dependencies |
 
-harness-community/ci-images is a possible source repository. At reviewed commit 9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc it has Linux Dockerfiles only, no Windows lane, no published release lifecycle, and a README support field marked TBU. Treat repository placement, image ownership, rebuild policy, SBOM/signing, registry, and support lifecycle as deliverables.
+Oracle's JDK 7 archive requires an Oracle account and is governed by the archive license. Current public Temurin support does not provide a general JDK 7 answer. Azul advertises older Java support, but access and commercial terms must be confirmed. JDK 7 should therefore be customer-provided legacy or come from a customer-approved vendor mirror, never an unqualified Harness public download.
 
-The development estimate is one engineering week total for Maven, Ant, Node, and Groovy. Do not sum the four brief estimates. The row briefs use the required 1 to 2 engineering week planning bucket because that bucket also contains qualification contingency. The one-week development estimate assumes existing registry/build automation and one actual customer tool pairing per family. It covers recipes, smoke fixtures, and templates on one LTSC baseline. It does not include production support lifecycle, a broad proxy/CA matrix, SBOM/signing rollout, all listed versions, Visual Studio Build Tools, SQL clients, multiple LTSC releases, or ARM64. Productionization is discovery required before estimate.
+## Test-result architecture
 
-## Native Harness experience
+NUnit, MSTest, and Cucumber separate test execution from report normalization and Harness ingestion.
 
-Using a Run or Test step does not make the solution an unmanaged script. The step is the managed execution contract:
+```text
+actual test runner
+-> native report where supported
+-> optional side-by-side conversion
+-> Harness report ingestion and Tests tab
+-> optional external publication such as qTest
+```
 
-- the image and version are selected centrally;
-- connectors and Harness secrets control credentials;
-- templates govern accepted inputs;
-- logs, outputs, reports, timeouts, retries, resources, and failure strategies are native configuration;
-- RBAC and audit remain in Harness;
-- Test steps add native result handling, splitting, and Test Intelligence where the compatibility matrix supports it;
-- Cache Intelligence and artifact connectors are applied only for their intended cache and artifact roles.
+`drone-nunit` is not a runner. It converts existing NUnit XML to JUnit in place and can fail on detected NUnit 3 failures. It is Linux-only, uses CGO/libxml2/libxslt, has no releases, does not correctly count NUnit 2 root failures, and destroys the source report. Porting it unchanged to Windows is not the recommended path.
 
-The command field invokes the project's build engine or the vendor CLI. This is also the normal model for Maven, Node, MSBuild, Git, and Groovy on other CI platforms.
+For the POC, run NUnit or VSTest directly and use their supported result options or a pinned transform. Cucumber should emit JUnit from the test framework where possible. Product work should first extend native formats. If several legacy formats still require conversion, build one cross-platform normalizer that writes a separate JUnit file, preserves the source, emits structured counts, and has shared fixtures. qTest publication remains downstream and separate.
 
-## Existing plugin decisions
+## Delivery workstreams and estimates
 
-| Repository | Reviewed SHA | Decision | Evidence affecting plan |
-| --- | --- | --- | --- |
-| drone-artifactory | c5db420e97e7c23ce3723aac30deae5b3a714c1e | Repair and qualify core paths; select npm extension only after discovery | Core Maven, Gradle, download, build-info, direct auth, CA PEM, and Windows Dockerfiles exist; RT proxy, download retry/thread, validation, and output gaps are known |
-| harness-community/drone-get-maven-version | 7df46f7c7975996af0ae149ec670f5cbbc65e51a | Qualify for version-only; extend after field discovery | Currently emits only POM_VERSION; no test/release pipeline |
-| harness-community/drone-cucumber | a39f074aa8ee6e77e9f17495ace6dc2ab45fd778 | Prefer native JUnit; repair this plugin if thresholds/outputs are required | Windows source exists, but targeted tests exposed parser and failure-semantics defects |
-| harness-community/drone-ant PR 1 | 53b582d4abfbfb7ffb45561b3d42b7c9f468f310 | Do not make primary solution | Unmerged, goals-only contract, unpinned packages, and a failing checked-in test |
+| Workstream | POC deliverable | POC effort | Productization deliverable | Productization effort | Likely owner |
+| --- | --- | --- | --- | --- | --- |
+| Toolchain POC | One LTSC baseline; one Maven/JDK, Ant/JDK, Node, and portable Groovy sample using customer images and governed templates | 1 to 2 weeks total | Shared secure resolver, signed base/release process, compatibility matrix | 2 to 4 weeks for bounded resolver foundation, then ecosystem work | CI + Platform |
+| Maven contract | Wrapper-first task experience on one real project | Included in toolchain POC | Maven plugin inputs, Java selection, controlled Maven fallback, reports, outputs | 2 to 4 weeks after field validation | CI |
+| Node contract | One exact Node/npm pair and project script | Included in toolchain POC | Node selection, package commands, cache, mirror, project-local tools | 2 to 4 weeks after field validation | CI |
+| .NET workload | One representative Build Tools profile and test projects | Discovery, then 1 to 2 weeks | Maintained workload profiles, servicing tests, optional shared normalizer | 2 to 4 weeks per bounded profile or normalizer workstream | CI + Platform |
+| Orchestration | One producer-consumer chain and artifact handoff | <1 week | Versioned templates and runbook | <1 week | CI |
+| Git and macOS templates | One repository mutation flow; one Xcode 14.3 signing flow | <1 week each after assets exist | Supported templates and credential lifecycle | 1 to 2 weeks shared | CI + Platform |
+| Artifactory | Repair known defects and qualify Maven/Gradle/download | 1 to 2 weeks | Release automation, support matrix, optional npm extension | Additional 1 to 2 weeks for selected npm scope | CI + HAR |
+| POM/Cucumber/warnings | Fixture-based implementation selection | Qualification or discovery | Bounded utility repair/extension or product warning contract | 1 to 2 weeks per selected bounded utility; warning platform work separate | CI, possibly Platform |
+| qTest | Auth, lookup, and submission proof in a test tenant | Discovery required | Publisher plugin with polling, retry, outputs, Windows release | 2 to 4 weeks after proof and ownership | CI + External/vendor |
 
-## Conditional product gaps
-
-No row is assigned primary solution type H because the customer outcome is not confirmed enough to select platform work. One case could become product work: native structured file/line/severity warning ingestion, navigation, retention, and UI if summary annotations are not sufficient.
-
-This should not be hidden inside a Windows plugin. It requires a separate product contract and estimate if customer discovery confirms it as a POC blocker.
-
-## Internal P0 decision gates
-
-These are Harness decisions, not questions for the customer.
-
-| Decision | Affects | Why it is P0 |
-| --- | --- | --- |
-| Name the owning team and repository for Windows images and each community plugin used in the POC. | Images, Artifactory, POM, Cucumber, qTest | Source existence is not a support commitment. |
-| Select the image registry, supported tag policy, SBOM/signing requirements, patch/rebuild expectation, and vulnerability response process. | All proposed Windows images | Required before describing an image as maintained or supported. |
-| Define EOL and legacy exception policy for JDK 7, old Maven, Node/npm 5/6, old .NET, and Visual Studio workloads. | Java, Node, .NET | Prevents a POC exception from becoming an unbounded matrix. |
-| Confirm plugin release ownership, registry publication, test-tenant access, and compatibility policy. | Artifactory, POM, Cucumber, qTest | Required before customer-facing support claims or release qualification. |
-| Decide whether reusable Run/Test templates satisfy the product experience for standard tools. | Maven, Ant, MSBuild, Node, Groovy, Git, SQL | Avoids building task wrappers without integration behavior. |
+These are workstream estimates, not row totals. Production ownership, vulnerability response, broad legacy matrices, multiple LTSC releases, and air-gapped qualification can add work.
 
 ## POC sequence
 
-1. Obtain the P0 exports, representative projects/reports, initial LTSC/architecture, proxy/CA requirements, and test-system access.
-2. Demonstrate capabilities available now: governed Run execution, JUnit-compatible reporting, same-stage workspace sharing, and immutable repository handoff.
-3. Qualify the Windows C# Test path and create or qualify the proposed Git mutation and macOS signing templates separately.
-4. Qualify a representative MSBuild/Build Tools workload before selecting its image or runner path.
-5. Build and qualify the smallest one-LTSC image set for the actual Maven/Ant/Node/Groovy projects.
-6. Repair and qualify drone-artifactory Maven/Gradle/download before selecting an npm extension.
-7. Select version-only versus extension for POM, and native JUnit versus drone-cucumber repair.
-8. Run the bounded warning-parser/summary proof before considering any native warning-UI work.
-9. Run bounded proofs for SQL and qTest before an implementation commitment.
-10. Escalate native warning UI only if the demonstrated summary/threshold outcome does not satisfy the POC.
+1. Obtain the eight P0 answers, exported Bamboo task configurations, and representative projects/reports.
+2. Choose one Windows LTSC/architecture and confirm proxy, CA, registry, and mirror constraints.
+3. Demonstrate Harness primitives already available: governed Run/Test execution, reports, outputs, templates, shared workspace, connectors, and immutable artifact handoff.
+4. Qualify one Java, Node, and .NET project path with customer-provided toolchains. Include one portable Groovy script and Ant project only if they are POC blockers.
+5. Qualify NUnit/MSTest report behavior without claiming Windows C# Test Intelligence until the supported matrix and E2E proof agree.
+6. Repair and qualify the existing Artifactory plugin core paths.
+7. Decide native versus utility paths for POM, Cucumber, and warnings from customer fixtures.
+8. Run the qTest test-tenant proof before estimating or promising a publisher.
+9. Record which legacy exceptions remain customer-provided and which product work has a named owner.
+
+## Internal decisions before product commitment
+
+- Name repository and on-call owners for the resolver, images, and every community plugin presented as supported.
+- Choose distribution allowlists, artifact metadata authority, cache location, signing, SBOM, patch cadence, and vulnerability SLA.
+- Set the Harness-supported, best-effort, and customer-provided version lists.
+- Decide whether the Maven and Node product contracts are customer-specific POC work or roadmap capabilities.
+- Decide whether structured file/line warnings require a native result contract rather than a parser plugin.
+- Confirm qTest vendor/API support and tenant ownership before creating a new integration.
 
 ## Planning conclusion
 
-The credible plan is a small set of shared workstreams, not a Bamboo plugin recreation program. Most rows map to existing Harness execution, testing, reporting, artifact, secret, and template constructs once the correct Windows/macOS environment is available. Artifactory should build on the existing plugin. qTest is the only current new-plugin candidate because it performs structured external-system synchronization. The highest uncertainty remains the customer's exact task configurations and legacy version combinations.
+The minimum credible POC is a set of qualified Harness-native flows on customer toolchains, not a fleet of new images or plugins. The sustainable product direction is a small shared provisioning foundation, two likely ecosystem contracts, heavy prebuilt .NET profiles, native test reporting, and reuse of the existing Artifactory and community utility code only where its behavior matches the customer need.

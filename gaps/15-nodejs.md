@@ -1,119 +1,99 @@
 # Node.js, npm, gulp, grunt, and bower
 
-| Field | Value |
+## Customer need
+
+The customer needs Node-based builds on Windows and lists all versions, with several old npm 5/6 variants elsewhere in the Artifactory tasks. The active Node/npm pairs, package scripts, lockfiles, global versus project-local gulp/grunt/bower, native modules, and registry/cache policy are unknown.
+
+The useful outcome is exact Node selection, predictable package-manager behavior, corporate registry access, cache control, and repeatable project commands. It is not a separate maintained image or plugin for every frontend CLI.
+
+## What Bamboo provides
+
+The last public source-bearing `bamboo-nodejs-plugin` commit reviewed was `9507e81d191890550da1940c175323d220d2418c` from release 9.3.4. Bamboo selects a configured Node executable capability and derives npm from the Node installation. On Windows it executes npm directly; on non-Windows it runs npm through Node. Node and npm tasks accept command/arguments, environment, and working directory. npm can use an isolated temporary cache shared by npm tasks in the build and cleaned afterward.
+
+Gulp, Grunt, and Bower tasks use repository-relative executable paths. Gulp and Grunt take task/config-file inputs. The source expects project-local development dependencies; it does not dynamically download Node.
+
+```text
+Bamboo task
+-> agent with selected Node capability
+-> npm or repository-local tool
+-> working directory/environment/cache
+-> command result
+```
+
+## Harness today
+
+Harness Run steps, templates, secrets, logs, outputs, reports, and Cache Intelligence can govern Node commands. A customer image can supply exact Node/npm. The reviewed `ci-images` repository has no Windows lane. The Drone `npm` plugin is a registry publisher, not a general Node build task. No supported Harness-owned Windows Node build plugin was found.
+
+## Gap
+
+Harness lacks a supported Windows Node selection contract and a clear legacy policy. Telling every pipeline to choose an arbitrary image and type commands loses Bamboo's centralized runtime choice and isolated cache convenience. Baking every historical npm version into images creates an unbounded matrix.
+
+## Recommended approach
+
+Recommendation: use a customer image plus governed package-script template for the POC; productize a Node ecosystem contract with controlled runtime selection and project-local tools.
+
+| Option | Assessment |
 | --- | --- |
-| Bamboo plugin key | bamboo-nodejs-plugin:* |
-| Provider | Bamboo native Node.js plugin |
-| Customer version(s) | All versions |
-| Harness CSV status | No |
-| Scope | CI, Windows image and reusable template |
-| Recommended Harness approach | Maintained Windows Node image tags with native Run templates and explicit cache paths |
-| Solution type | C. Language or tool image |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+| Fixed images | Good for a few supported Node LTS versions, but poor for the entire historical set. |
+| Broad Java/Node/.NET image | Rejected due to size, conflicts, and unrelated patching. |
+| Dynamic Node plugin | Strong fit when it resolves exact verified Node archives and exposes package/cache inputs. |
+| Hybrid | Preferred: prepackage current supported versions, resolve other approved versions from a verified cache/mirror, customer images for legacy. |
+| Customer image | Fast POC and legacy fallback, but not the full product UX. |
 
-## 1. What this Bamboo task does
+Do not create separate gulp, grunt, or bower plugins. Use package.json scripts or project-local `node_modules/.bin`/`npx` where the project supports it. Bower and global legacy tools remain customer-provided unless active blockers justify qualification.
 
-The Bamboo Node tasks select a configured Node/npm capability and run Node, npm, gulp, grunt, or bower commands. Bamboo adds tool-version selection, working directory, environment, and task outcome around project tooling.
+## POC experience
 
-Most modern projects express their build in package.json and install local CLI packages. The build engine remains Node/npm and project scripts.
+Proposed template inputs, not final Harness YAML:
 
-## 2. How it works in Bamboo
+```yaml
+node:
+  version: "20.19.5"
+packageManager: npm
+command: ci
+workingDirectory: web
+cache:
+  mode: isolated
+  dependencyFile: web/package-lock.json
+nextCommand: npm test
+```
 
-Bamboo job → selected Node/npm capability → npm install/ci or Node/project tool command → package registry and project scripts → exit status and generated reports/artifacts.
+Use the customer's actual pair instead of the example. One POC project verifies package install, project script, registry/proxy/CA, cache behavior, and native-module dependencies.
 
-Older gulp, grunt, and bower tasks may depend on globally installed CLIs. Current practice is project-local dependencies invoked through npm scripts or npx.
+## Productized direction
 
-## 3. How the customer uses it
+Provide a Node-oriented plugin or task contract that calls the shared secure resolver. Inputs should include exact Node version, optional node-version file, package-manager command, working directory, environment, registry auth, proxy/CA/mirror, cache mode/path/key, and project-local executable/script. Node distributions normally bundle npm; support an explicit npm override only when an active legacy pair requires it and the source is approved.
 
-Confirmed customer usage: the inventory says all versions and names npm, node, gulp, grunt, and bower. The Artifactory row lists legacy npm 5/6 releases, but the Node versions and whether tools are global or project-local are absent.
+Use Harness-supported current lines, best-effort approved archives, and customer-provided legacy. The resolver must use allowlisted HTTPS or customer mirrors, verified digests, deterministic versions, atomic cache writes, and secret-safe logs.
 
-Typical plugin capability: install dependencies, run package scripts, and invoke frontend build tools.
+## Discovery required
 
-Customer usage context: not confirmed from the available source material.
+- Which exact Node/npm pairs and commands block the POC, and which can be upgraded?
+- Are gulp/grunt/bower installed locally, globally, or invoked through package scripts?
+- Which lockfiles, registries, proxy/private CA, offline mirror, and cache isolation are required?
+- Do native modules require Python, MSBuild, Windows SDK, or other Build Tools?
 
-Smallest question: Which Node versions and commands are active, and are gulp, grunt, and bower declared in package manifests or installed globally?
+## Validation
 
-## 4. What Harness supports today
+Run representative install/build/test flows on target LTSC. Verify exact Node/npm identity, lockfile enforcement, local tools, scoped registry auth, cache isolation and warm/cold behavior, native modules, paths with spaces, proxy/private CA, offline failure, checksum rejection, cancellation, and secret masking. Compare artifacts and test results with Bamboo.
 
-Harness Run steps can execute Node/npm in a selected image and manage secrets, logs, outputs, reports, timeout, and failure strategy. Cache Intelligence supports Node-related dependency paths, but Windows requires explicit paths and keys.
+## Effort and ownership
 
-The reviewed ci-images repository has only Linux Node images, old Node 17/18 content, no Windows lane, and a TBU lifecycle. The CSV says No because a maintained Windows Node image/version strategy is absent.
+- POC: included in the 1 to 2 week shared toolchain workstream.
+- Product Node contract: 2 to 4 engineering weeks after the shared resolver and inputs are agreed.
+- Likely ownership: CI + Platform.
 
-## 5. The actual gap
+## What we can tell the customer
 
-The gap is a supported Windows Node image family, version policy, registry/CA/proxy qualification, cache template, and migration guidance for project-local legacy build tools.
+- Harness can run Node builds on Windows today with a compatible customer image.
+- The POC will qualify actual Node/npm pairs and project scripts, not package every historical version.
+- The long-term direction provides controlled runtime selection and cache behavior without separate gulp/grunt/bower plugins.
+- Native-module projects may also require a selected Visual Studio Build Tools profile.
 
-“All versions” is not a workable support contract. EOL Node/npm and bower require an explicit migration or time-bounded compatibility decision.
+## Sources
 
-## 6. Recommended Harness solution
-
-Recommendation: publish pinned Windows Node image tags and reusable Run templates for npm ci, npm scripts, and npx-invoked project tools.
-
-The customer selects the image tag, command/script, working directory, registry secret, cache paths, reports, timeout, and failure strategy. Harness owns the execution environment, governance, logs, secrets, outputs, and reusable templates.
-
-Engineering work is pinned Node/npm packaging, checksum/SBOM/rebuild policy, Windows Kubernetes smoke tests, private registry/CA/proxy tests, and cache examples. We should not create separate npm, gulp, grunt, bower, or node plugins, and should not bake global project tools into every image.
-
-Result: repositories use their own package manifests while the platform supplies a maintained Windows runtime.
-
-## 7. Proposed implementation shape
-
-- Base OS: one agreed Windows Server Core LTSC baseline for the POC.
-- Tags: LTSC, Node major/minor where required, npm version only when deliberately overridden, image revision.
-- Included: Node, npm/corepack if compatible, CA setup helpers; no global gulp/grunt/bower.
-- Project-owned: package.json, lockfile, npm scripts, local CLIs, application dependencies.
-- Template: npm ci or script, npx tool, workdir, registry secret, cache path/key, report paths, outputs, timeout, and failure strategy.
-- Qualification: private registry, Artifactory if used, proxy/CA, spaces, long paths, native modules, cache hit/miss, and failure.
-
-## 8. Discovery needed
-
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Which Node/npm pairs appear in active plans? | Defines a finite image matrix. | Customer |
-| Are gulp/grunt/bower local dependencies or global capabilities? | Determines migration changes and image contents. | Customer |
-| Are native Node modules compiled? | May require Python and MSVC Build Tools. | Customer |
-| Which registry, proxy, CA, and cache paths are used? | Required for representative Windows qualification. | Customer |
-
-## 9. Validation plan
-
-Run representative locked installs and project scripts on Windows Kubernetes. Test private registry, scoped packages, proxy/CA, paths with spaces and long paths, local npx tools, cache miss/hit, native-module compilation if present, failed install, secret masking, cancellation, and report/artifact production. Record image digests and runtime versions.
-
-## 10. Dependencies and risks
-
-- Blocking: no finite Node/version/command inventory.
-- Planning: “all versions” and bower imply legacy compatibility work.
-- Implementation: Windows native modules may pull in the MSBuild workload.
-- Long-term maintenance: Node release cadence and EOL rebuild decisions.
-
-## 11. Planning estimate
-
-1 to 2 engineering weeks is the required planning bucket, including qualification contingency. The development portion is included in one shared engineering week for Maven/Ant/Node/Groovy and is not additive by row. This assumes one actual Node/npm pairing and reusable registry/build automation. Legacy versions, native modules, production lifecycle, multi-LTSC, and ARM64 are not included.
-
-## 12. What we can tell the customer now
-
-- Harness supports governed Windows Run execution when a compatible Node image is supplied; Harness does not currently provide the proposed maintained Windows Node image family.
-- The planned gap closure is a maintained Windows Node image family and reusable templates.
-- Project-local npm scripts and npx are preferred over globally packaged gulp, grunt, or bower.
-- We need the actual Node/npm pairs and any native-module requirements before confirming coverage.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 25.
-
-### Bamboo/vendor
-
-- [Atlassian: Getting started with Node.js and Bamboo](https://confluence.atlassian.com/display/BAMBOO0800/Getting%2Bstarted%2Bwith%2BNode.js%2Band%2BBamboo)
-- [GitHub Actions: Building and testing Node.js](https://docs.github.com/en/actions/tutorials/build-and-test-code/nodejs)
-- [Bower project notice](https://bower.io/docs/creating-packages/)
-
-### Harness
-
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/use-ci/caching-ci-data/cache-intelligence.md
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/development-guides/ci-windows.md
-- [harness-community/ci-images at 9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc](https://github.com/harness-community/ci-images/tree/9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc)
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/RunStepInfo.java
-
-Confidence: Medium.
+- [Atlassian Node.js and Bamboo guide](https://confluence.atlassian.com/display/BAMBOO0800/Getting%2Bstarted%2Bwith%2BNode.js%2Band%2BBamboo)
+- [`bamboo-nodejs-plugin` public source commit `9507e81d191890550da1940c175323d220d2418c`](https://bitbucket.org/atlassian/bamboo-nodejs-plugin/commits/9507e81d191890550da1940c175323d220d2418c)
+- [GitHub `setup-node`](https://github.com/actions/setup-node/blob/main/README.md)
+- [`drone-npm` purpose](https://github.com/drone-plugins/drone-npm)
+- [`ci-images` at `9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc`](https://github.com/harness-community/ci-images/tree/9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc)

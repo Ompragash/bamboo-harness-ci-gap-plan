@@ -8,8 +8,9 @@
 | Last modified | 2026-08-19 21:49:01 +0530 |
 | Header | `Bamboo task (plugin key),Plugin Provider,Version(s) in use,Harness native equivalent,Scope classification,Proposed Harness solution and delivery plan` |
 | Data rows | 32 |
-| Qualifying rows | 19 |
-| Excluded rows | 13 |
+| Initial No/Partial CI candidates | 19 |
+| Active CI briefs after ownership review | 18 |
+| Excluded rows | 14 |
 
 ## Selection and parsing
 
@@ -17,12 +18,12 @@ The workspace and `/Users/ompragash/Git` were searched for CSV files containing 
 
 The source was parsed with `Workbook.fromCSV` from `@oai/artifact-tool`. Header shape, row count, and a six-column used range were validated before applying the selection rule.
 
-A row is included only when:
+A row enters the initial candidate set only when:
 
 1. `Harness native equivalent` contains a meaningful `No` or `Partial` classification; and
 2. `Scope classification` affirmatively begins with `CI` or `macOS CI` and does not state that CI is outside or excluded from scope.
 
-This prevents phrases such as `excluded from Windows CI scope` from being mistaken for positive CI scope.
+This prevents phrases such as `excluded from Windows CI scope` from being mistaken for positive CI scope. A second ownership review removed the SQL task from active CI planning because its documented default behavior targets a configured database and fits DB DevOps or CD. Its research note is retained for the conditional ephemeral-test-database case.
 
 ## Customer source reference
 

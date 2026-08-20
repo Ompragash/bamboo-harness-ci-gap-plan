@@ -1,115 +1,94 @@
 # NUnit
 
-| Field | Value |
-| --- | --- |
-| Bamboo plugin key | plugin.dotnet:nunit |
-| Provider | Bamboo native .NET plugin |
-| Customer version(s) | NUnit through Visual Studio 2015, 2017, 2019, 2022, and customer-provided label “Visual Studio 2025”; label requires confirmation |
-| Harness CSV status | Partial |
-| Scope | CI, native Test/TI and legacy-mode discovery |
-| Recommended Harness approach | Qualify the native Test/reporting path on Windows; use a governed Run/report fallback for unqualified modes |
-| Solution type | B. Existing native capability plus qualification |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+## Customer need
 
-## 1. What this Bamboo task does
+The customer needs NUnit execution and build-visible results across projects associated with Visual Studio 2015, 2017, 2019, 2022, and a customer label “Visual Studio 2025.” The runner major, .NET Framework versus modern .NET split, assemblies/projects, categories, and expected report format are unknown.
 
-The task invokes NUnit tests, supplies assemblies and runner options, interprets the process result, and makes test results visible in Bamboo. Teams use it when tests are not already run as part of a Maven-like build lifecycle.
+The required outcome has two parts: execute the correct NUnit runner with the right filters and fail semantics, then show accurate results in Harness. Test Intelligence is a separate optional outcome and is not currently documented as supported for a specific Windows C# version.
 
-## 2. How it works in Bamboo
+## What Bamboo provides
 
-Bamboo job → NUnit task → selected NUnit or Visual Studio toolchain → test assemblies → NUnit result XML → Bamboo test result parser and task outcome.
+Bamboo's NUnit Runner selects a configured NUnit executable capability, accepts test assemblies/projects, result filename, include/exclude categories, command-line options, and environment variables, runs NUnit, and parses results. Bamboo's useful abstraction combines runner execution and visible test results.
 
-The runner version, .NET runtime, assembly list, filters, and result format determine compatibility. Bamboo's useful addition is configured execution and visible test results.
+```text
+Bamboo NUnit task
+-> selected NUnit executable
+-> assemblies, categories, options
+-> runner exit plus NUnit XML
+-> Bamboo test results
+```
 
-## 3. How the customer uses it
+Atlassian has historically forced NUnit 3 output into NUnit 2 compatibility format in this task, which makes the customer's configured runner and result files important migration evidence.
 
-Confirmed customer usage: the inventory associates NUnit with Visual Studio toolchains from 2015 through its label “Visual Studio 2025.” Confirm whether that final label means a 2025 runner image/servicing date, Visual Studio 2022 17.x, or another toolchain.
+## Harness today
 
-Typical plugin capability: run NUnit console or dotnet test against one or more test assemblies and publish results.
+Harness can execute `dotnet test` or `nunit3-console.exe` in a Run or Test step and ingest compatible reports. Harness documentation includes a Windows NUnit-to-JUnit transform example. Current Test Intelligence documentation lists Windows C# supported versions as TBD, so .NET 6+ must not be treated as proof of Windows TI support.
 
-Customer usage context: not confirmed from the available source material.
+`harness-community/drone-nunit` was reviewed at `479806210a6e95b96bc24eefb9f3d41dd953ab4c`. It does not execute NUnit or publish directly to Harness. It finds existing NUnit XML, reads NUnit 3 `<test-run failed>`, optionally fails, transforms NUnit 2/3 to JUnit through XSLT, and overwrites the source file. It is Linux amd64 only, uses CGO with libxml2/libxslt, has no tags/releases, and its release pipeline references missing files and the wrong default branch. Static review also found that NUnit 2 root failures are not counted for gating and parse errors can be deferred. Its checked-in empty fixture is malformed. `xsltproc` successfully transformed the two valid fixtures, but Go tests/builds could not be run because Go is not installed in the research environment.
 
-Smallest question: Are the active tests modern .NET projects run by dotnet test, or legacy .NET Framework assemblies run by NUnit Console?
+## Gap
 
-## 4. What Harness supports today
+The gap is qualification of the actual runner/runtime and a safe report path on Windows. `drone-nunit` cannot replace Bamboo's runner and is not Windows-ready. Porting it unchanged would retain destructive output, CGO dependencies, NUnit 2 gating defects, and stale release automation.
 
-Harness has a native Test step with reports, outputs, environment, image, shell, test splitting, and Test Intelligence integration. However, the current C# compatibility table lists Windows supported versions as TBD and .NET Framework as TBD. The .NET Core 6+ entry is an implementation minimum, not proof of Windows Test Intelligence support. Run steps can collect JUnit-compatible reports, and the Test step documents TRX as the default C# report path.
+## Recommended approach
 
-The docs describe TRX handling in the Test step and JUnit-compatible ingestion/conversion patterns. This provides a candidate modern dotnet test path, but Windows Test-step behavior, legacy NUnit console, and full-framework modes require qualification.
+Recommendation: execute NUnit natively in Harness, publish a runner-produced supported report when possible, and use a side-by-side transform only for legacy formats.
 
-The CSV is Partial because governed execution and report ingestion exist, while Windows Test-step behavior, every runner mode, and TI compatibility remain unqualified.
+For modern projects, qualify the Harness Test step or a governed Run step with `dotnet test`. For legacy assemblies, use the selected NUnit console executable in the .NET workload image. Preserve the original NUnit XML and write JUnit to a separate path before native ingestion.
 
-## 5. The actual gap
+Do not extend `drone-nunit` for Windows as the POC default. Reuse its XSLT only after license/security review and verified fixtures if it matches the required legacy format. If NUnit, MSTest, and Cucumber all need normalization, prefer one shared cross-platform normalizer with format-specific adapters and no CGO.
 
-Harness can host NUnit execution and ingest compatible results. The gap is proof that each active runner/runtime combination works on the customer's Windows Kubernetes image, plus a conversion path when the runner does not produce a directly supported report.
+## POC experience
 
-Test Intelligence should be offered only for the documented supported combination, not implied for every Visual Studio or .NET Framework version.
+The customer configures a native Test or governed Run template with the runner, project/assembly paths, categories/filters, options, result destination, and report path.
 
-## 6. Recommended Harness solution
+Proposed template inputs, not final Harness YAML:
 
-Recommendation: first qualify the native Test step with a representative modern Windows NUnit project; use it only when that proof passes, and otherwise use a reusable Run template plus report conversion/ingestion. Apply the same fallback to confirmed legacy console workloads.
+```yaml
+runner: nunit3-console
+assemblies: [tests/Product.Tests.dll]
+includeCategories: [Smoke]
+nunitReport: TestResults/nunit.xml
+junitReport: TestResults/junit.xml
+failIfNoResults: true
+failedTestsFailBuild: true
+```
 
-The customer configures the test project or assemblies, filters, report path, image, and secrets. Harness manages execution, selection where supported, splitting, reports, logs, timeout, failure strategy, and Tests-tab visibility.
+The transform is omitted when the selected runner can produce a directly supported result. Test Intelligence is disabled unless its current Windows compatibility and an E2E proof support the exact project.
 
-Engineering work is qualification against representative projects and, if required, a pinned report converter in the shared .NET image. We should not build an NUnit plugin unless discovery identifies structured behavior beyond invoking the runner and ingesting its reports.
+## Productized direction
 
-Result: native test visibility for all qualified modes, with Test Intelligence limited to supported combinations.
+Prefer native report-format support. If a normalizer is required, create a signed Windows/Linux utility that reads source reports without mutation, writes a separate JUnit file, emits passed/failed/skipped totals, distinguishes parse failure from test failure, supports explicit empty-result policy, and has fixtures for NUnit 2/3, MSTest/TRX, and selected Cucumber formats. It does not invoke test runners or publish to qTest.
 
-## 7. Proposed implementation shape
+The existing repository can be superseded or retired after the shared design is approved. Source existence is not a support commitment.
 
-- Candidate modern path: native Test step, pinned .NET SDK image, dotnet test, TRX/report configuration; Test Intelligence and splitting only after Windows qualification.
-- Legacy path: Windows Build Tools/.NET Framework image, NUnit Console through a Run template, deterministic XML conversion if needed, and report paths.
-- Template inputs: project/assemblies, filters, configuration, runtime, results path, environment, secrets, timeout, and failure strategy.
-- Qualification: one project per active runner family, successful and failing tests, skipped tests, attachments if used, paths with spaces, and large suites.
+## Discovery required
 
-## 8. Discovery needed
+- Which NUnit major, executable, framework, assemblies/projects, categories, and options are active?
+- Does Bamboo currently emit NUnit 2 compatibility XML, NUnit 3 XML, TRX, or JUnit?
+- Are attachments, custom adapters, fail-if-no-results, or result conversion required?
+- Is Windows C# Test Intelligence a POC requirement or is native result visibility sufficient?
 
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Which NUnit major versions and runners are used? | Defines command and report compatibility. | Customer |
-| Which tests are .NET Core 6+ versus full .NET Framework? | Determines native Test/TI eligibility. | Customer |
-| Are filters, attachments, categories, or custom adapters required? | Defines acceptance criteria and image contents. | Customer |
-| Is Test Intelligence required for the POC or only result publishing? | Changes qualification scope. | Customer / Product |
+## Validation
 
-## 9. Validation plan
+Run representative modern and legacy suites on the target Windows environment. Verify passed, failed, skipped, filtered, and empty cases; correct process/task failure; NUnit 2 and 3 fixture handling if both are active; paths with spaces; adapter discovery; preserved source XML; accurate Tests-tab counts; malformed input; cancellation; and secret masking. Compare the same suite and report counts with Bamboo.
 
-Run representative modern and legacy suites on the target Windows Kubernetes environment. Verify passed, failed, skipped, and filtered cases; correct task failure; report counts and names in the Tests tab; paths with spaces; proxy/CA for private packages; adapter discovery; cancellation; and secret masking. Treat Windows C# TI as unconfirmed until the compatibility owner and an E2E proof establish support, then verify selected tests and selection reasons.
+## Effort and ownership
 
-## 10. Dependencies and risks
+- POC: qualification only when the runner already exists; 1 to 2 engineering weeks if a shared legacy image/template/transform is required.
+- Product normalizer: 2 to 4 engineering weeks only after multi-format need is confirmed.
+- Likely ownership: CI; Platform participates in binary/image release.
 
-- Blocking: no representative modern and legacy test projects.
-- Planning: Visual Studio version does not identify NUnit runner/runtime.
-- Implementation: report conversion and custom adapters.
-- Long-term maintenance: old full-framework runners and targeting packs.
+## What we can tell the customer
 
-## 11. Planning estimate
+- Harness will run the real NUnit runner and display its results; the community plugin does not execute tests.
+- The current community plugin is Linux-only and needs more than a Windows Dockerfile, so it will not be presented as the POC solution.
+- Legacy report conversion is available as a bounded path while native support is preferred.
+- Windows C# Test Intelligence remains unconfirmed until the exact project passes supported-matrix and E2E checks.
 
-Qualification only for the first modern Windows Test-step proof. Use 1 to 2 engineering weeks only if a shared legacy runner image, converter, and template must be added; that work is shared with MSTest and MSBuild rather than counted per row.
+## Sources
 
-## 12. What we can tell the customer now
-
-- Harness has native Test and report contracts, but current documentation leaves Windows C# supported versions TBD.
-- Legacy NUnit console modes can use governed Windows execution and report ingestion, but require qualification.
-- Windows C# Test Intelligence must be confirmed against the exact runtime and framework before it is presented as supported.
-- We need one modern and one legacy sample to define the POC path.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 7.
-
-### Bamboo/vendor
-
-- [Atlassian: NUnit Runner](https://confluence.atlassian.com/display/BAMBOO/NUnit%2BRunner)
-- [Atlassian: Configuring a test task](https://confluence.atlassian.com/bamboo1200/configuring-a-test-task-1680480840.html)
-
-### Harness
-
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/use-ci/run-tests/tests-v2.md
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/use-ci/run-tests/test-report-ref.md
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/TestStepInfo.java
-
-Confidence: Medium.
+- [Atlassian NUnit Runner](https://confluence.atlassian.com/display/BAMBOO/NUnit%2BRunner)
+- [Atlassian BAM-18336 NUnit 3 compatibility behavior](https://jira.atlassian.com/browse/BAM-18336)
+- [`drone-nunit` at `479806210a6e95b96bc24eefb9f3d41dd953ab4c`](https://github.com/harness-community/drone-nunit/tree/479806210a6e95b96bc24eefb9f3d41dd953ab4c)
+- Harness local evidence: `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, `run-tests-in-ci.md`, `tests-v2.md`, and `test-report-ref.md`.

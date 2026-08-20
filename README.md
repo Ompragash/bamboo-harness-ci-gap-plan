@@ -1,127 +1,76 @@
-# Bamboo to Harness CI gap plan
+# Customer CI capability plan
 
-## Why this exists
+## Executive takeaway
 
-This planning pack supports a prospective customer's Harness POC and Bamboo migration assessment. It converts the customer's task inventory into one evidence-backed brief per qualifying CI gap. The purpose is to distinguish what can be demonstrated now, what needs Windows/macOS qualification, what requires shared engineering, and what cannot be selected until the customer's actual task configuration is known.
+The customer can move most of the identified Bamboo CI behavior to Harness without recreating every Bamboo task as a plugin. Harness already supplies the pipeline execution, Windows and macOS runner model, secrets, logs, outputs, test reporting, failure strategies, templates, workspace sharing, and artifact connectors. The missing experience is mainly a supported Windows toolchain contract, qualification against the customer's legacy projects, and a small number of structured external integrations.
 
-## Scope
+The recommended product direction is a hybrid:
 
-A source row is included only when:
+- use governed Run or Test templates when the underlying tool is already present and no integration logic is missing;
+- use ecosystem plugins when version selection, controlled provisioning, structured inputs, or result processing would otherwise be copied into every pipeline;
+- use prebuilt images or VMs for large, OS-coupled toolchains such as Visual Studio Build Tools;
+- prefer repository wrappers such as `mvnw.cmd` and `gradlew.bat`;
+- let customers supply legacy or licensed runtimes that Harness should not redistribute or promise to maintain.
 
-1. Harness native equivalent meaningfully contains No or Partial; and
-2. Scope classification materially includes CI.
+For the POC, customer-supplied toolchain images are an acceptable acceleration path. Productization requires named owners, supported-version classes, signed releases, runtime provenance, patching, and Windows qualification. SQL execution has been removed from the active CI plan because its documented task contract targets a configured database and fits DB DevOps or CD unless the customer proves it is only CI test-fixture setup.
 
-Pure Yes rows and CD/deployment-only or STO/security-only rows are excluded.
+## Proposed POC workstreams
 
-- Total source rows: 32
-- Included rows: 19
-- Excluded rows: 13
-- Source and digest: [source/input-metadata.md](source/input-metadata.md)
-- Complete selection record: [selection-audit.md](selection-audit.md)
+| Workstream | Customer capabilities | POC direction | Product direction | Confidence |
+| --- | --- | --- | --- | --- |
+| Windows toolchain foundation | Maven, Ant, Node, portable Groovy | Qualify one customer image and one representative project per required family | Shared, secure runtime bootstrap plus Maven and Node contracts; Ant shares Java; Groovy stays template-first | Medium |
+| Windows .NET foundation | MSBuild, Visual Studio, NUnit, MSTest | Inventory workloads, qualify one Build Tools profile, run representative tests, publish native reports | Maintained workload-profile images or VM lane plus a shared cross-platform result-normalization layer where needed | Medium |
+| Native orchestration | Maven dependencies processor, artifact download | Demonstrate explicit chaining/triggers and immutable artifact inputs | Versioned templates and documented artifact contract | High |
+| Governed platform templates | Git mutation, Xcode keychain | Demonstrate one signed or unsigned Git write flow and one macOS signing flow | Supported templates with credential and cleanup policy | Medium |
+| Artifactory integration | Maven, Gradle, generic download, npm/build-info | Repair and qualify the existing plugin on one Windows LTSC baseline and JFrog tenant | Supported release process; share Java/Node runtime strategy instead of multiplying images | Medium |
+| Metadata and test-result utilities | POM extraction, Cucumber, warnings | Select the smallest path from customer fixtures; use native JUnit where possible | Extend existing utilities or add a shared normalizer only for confirmed behavior | Medium-low |
+| qTest publication | qTest result synchronization | API and test-tenant proof before implementation commitment | Windows-capable publisher plugin if the proof confirms the required mapping contract | Low |
 
-## Executive summary
+## Capability plan
 
-Primary solution classifications are mutually exclusive:
+| Capability | Customer need | Harness direction | Discovery that changes the plan | POC effort | Brief |
+| --- | --- | --- | --- | --- | --- |
+| Maven | Maven across JDK 7, 8, 11, 17, and 21 on Windows | Customer image for POC; product Maven contract using wrapper-first execution and selectable Java | Active Maven/JDK pairs, distribution, wrapper, mirror/offline policy | 1 to 2 weeks within toolchain POC | [Maven](gaps/01-maven.md) |
+| Maven dependency processing | Build ordering from Maven relationships | Explicit stages, pipeline chaining, triggers, and immutable artifact inputs | One active producer-consumer graph | <1 week | [Dependency orchestration](gaps/02-maven-dependencies-processor.md) |
+| Ant | Ant targets on Windows Java | Customer image plus template; share the Java provider if productized | JDK, Ant, build file, targets, reports | Included in toolchain POC | [Ant](gaps/03-ant.md) |
+| MSBuild and Visual Studio | Projects spanning MSBuild 2.0 to 17 | Prebuilt workload profile or VM, not per-run Visual Studio installation | Project types, workloads, targeting packs, `devenv.exe` need | Discovery, then 1 to 2 weeks for one profile | [MSBuild](gaps/04-msbuild-visual-studio.md) |
+| NUnit | Execute NUnit and expose results | Run the actual runner, transform only when required, publish native reports | Runner major, framework, categories, report format, TI need | Qualification; 1 to 2 weeks only for shared legacy work | [NUnit](gaps/05-nunit.md) |
+| MSTest | Execute MSTest/VSTest and expose results | Native Test candidate for modern projects; governed VSTest fallback | Runner, adapter, framework, settings, TI need | Qualification; shared with .NET work | [MSTest](gaps/06-mstest.md) |
+| Artifact download | Consume producer artifacts | Shared workspace in one stage; immutable repository handoff otherwise | Producer and build-selection semantics | <1 week | [Artifact handoff](gaps/07-artifact-download.md) |
+| Git operations | Commit, push, tag, and branch | Native checkout plus governed Git-for-Windows template | Operations, signing, identity, branch policy | <1 week | [Git operations](gaps/08-git-operations.md) |
+| Xcode keychain | Make signing identities available to Xcode 14.3 | Ephemeral keychain workflow on a macOS runner | Runner, certificate/profile source, cleanup policy | Qualification or <1 week | [Xcode keychain](gaps/09-xcode-keychain.md) |
+| Warnings parser | Parse warnings, gate builds, show findings | File-based parser proof and summary; platform review only for native file navigation/trends | Formats, input source, thresholds, UI outcome | Discovery, then 1 to 2 weeks for bounded formats | [Warnings](gaps/10-warnings-parser.md) |
+| Artifactory Maven/Gradle | Build through JFrog and publish build-info | Repair and qualify `drone-artifactory` | JFrog fields, wrappers, Gradle versions, proxy/CA | 1 to 2 weeks, shared | [Artifactory build](gaps/11-artifactory-maven-gradle.md) |
+| Artifactory download | Resolve/download with JFrog semantics | Repair and qualify existing download path | File specs, properties, retries, output needs | Included in Artifactory work | [Artifactory download](gaps/12-artifactory-download.md) |
+| Artifactory npm/build-info | npm resolution/deploy and build-info | Extend the same plugin only if JFrog CLI mapping is confirmed | npm operations, exact Node/npm pairs, publish sequencing | 1 to 2 weeks after discovery | [Artifactory npm](gaps/13-artifactory-npm-build-info.md) |
+| Maven POM values | Turn GAV or custom POM fields into pipeline outputs | Replace or extend the version-only utility after exact query discovery | Raw/effective POM, fields, output names and scope | <1 week version-only; 1 to 2 weeks bounded parity | [POM values](gaps/14-maven-pom-parser.md) |
+| Node.js tooling | Node, npm, gulp, grunt, and bower on Windows | Customer image for POC; product Node contract with controlled version selection and project-local tools | Node/npm pairs, global tools, native modules, offline policy | Included in toolchain POC | [Node.js](gaps/15-nodejs.md) |
+| ScriptRunner Groovy | Run portable Groovy automation | Direct Groovy execution in a governed template; rewrite Bamboo-coupled scripts | Scripts, Bamboo bindings, Groovy/JDK pair | Included in toolchain POC for one portable script | [Groovy](gaps/17-scriptrunner-groovy.md) |
+| Cucumber reports | Publish scenarios and apply any required gates | Native JUnit first; repair `drone-cucumber` only for confirmed JSON thresholds | Format, globs, gates, tags, Jira behavior | Qualification or 1 to 2 weeks bounded repair | [Cucumber](gaps/18-cucumber-reports.md) |
+| qTest | Publish JUnit results into qTest hierarchy | Discovery-gated Windows publisher plugin | qTest version, auth, release/environment mapping, tenant | Discovery, then 2 to 4 weeks for bounded plugin | [qTest](gaps/19-qtest.md) |
 
-| Primary planning disposition | Count | Meaning |
-| --- | ---: | --- |
-| Native capability plus qualification | 4 | NUnit, MSTest, artifact handoff, and macOS keychain/signing; Windows C# TI remains unconfirmed |
-| Language/tool image or reusable template | 6 | Maven, Ant, Node, Groovy, Git operations, and Maven dependency orchestration |
-| Existing plugin qualification | 0 | No row is qualification-only after source review |
-| Existing plugin extension or repair | 3 | Artifactory Maven/Gradle and download need known hardening; npm/build-info is a conditional extension |
-| New plugin candidate | 1 | qTest, conditional on P0 discovery, a test-tenant proof, and an ownership decision |
-| Discovery-first implementation selection | 5 | MSBuild workloads, warnings, POM extraction, SQL, and Cucumber |
-| Product/platform enhancement selected now | 0 | One conditional warnings-UI gap is identified, but customer need is not yet confirmed |
+The row estimates are not additive. Shared work and dependencies are consolidated in [cross-cutting-plan.md](cross-cutting-plan.md).
 
-All 19 rows have at least one customer/environment question because the original email supplies inventory and version strings, not exported task configurations. Five rows use discovery as their primary solution type; qTest is additionally discovery-gated before plugin commitment.
+## Decisions needed now
 
-## Solution type legend
+Harness must name owners for Windows toolchain bootstrap, maintained images, and any community plugin used in the POC. It must also decide the supported-version policy, registry and signing process, vulnerability response, and whether JDK 7 is strictly customer-provided legacy.
 
-| Code | Meaning |
-| --- | --- |
-| A | Existing native Harness capability |
-| B | Existing native capability plus qualification |
-| C | Language or tool image |
-| D | Reusable Harness template |
-| E | Existing plugin qualification |
-| F | Existing plugin extension or repair |
-| G | Discovery-gated new-plugin candidate |
-| H | Product/platform enhancement |
-| I | Discovery required before selecting implementation |
+The POC should select one Windows LTSC baseline and representative projects before creating an image or plugin matrix. A successful customer image proof demonstrates migration feasibility; it does not by itself create a Harness support commitment.
 
-## Planning table
+## Customer questions
 
-| Bamboo capability | Customer use | Current state | Gap | Recommended path | Decision gate | Estimate | Confidence | Brief |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Maven | JDK 7/8/11/17/21 estate; exact goals unknown | Governed Windows execution exists when the customer supplies a compatible image | No Harness-maintained Windows Maven/JDK matrix | Shared Windows image plus native Run/Test template | One actual Maven/JDK/LTSC POC pairing | Included in one shared engineering week of image development; not additive | Medium | [Brief](gaps/01-maven.md) |
-| Maven dependencies processor | Task present; active relationships unknown | Explicit Harness orchestration exists | Bamboo-derived relationships need explicit migration mapping | Chaining, triggers, ordered stages, and immutable artifact inputs | Supply one active producer-consumer chain | <1 engineering week | Medium | [Brief](gaps/02-maven-dependencies-processor.md) |
-| Ant | Task present; versions/targets unknown | Run execution exists; community PR is unqualified | No maintained Windows Ant/JDK environment | Shared image plus Run template | One actual Ant/JDK POC pairing and template acceptance | Included in one shared engineering week of image development; not additive | Medium | [Brief](gaps/03-ant.md) |
-| MSBuild/Visual Studio | Versions 2.0 through 17; workloads unknown | Governed Windows execution exists; toolchain is customer-supplied | Build Tools/project compatibility not proven | Workload discovery, then smallest viable image/template or runner path | Representative workloads and projects | Discovery before estimate | Low | [Brief](gaps/04-msbuild-visual-studio.md) |
-| NUnit | VS 2015 through customer label “VS 2025”; runner/label unknown | Test/report contracts exist; Windows C# versions are TBD in the current matrix | Windows Test-step, legacy runner, and TI compatibility not proven | Qualify modern Test path; use Run/report fallback where unqualified | Runner/runtime/adapters, TI need, and “VS 2025” meaning | Qualification only; shared legacy work conditional | Medium | [Brief](gaps/05-nunit.md) |
-| MSTest | VS 2015 through customer label “VS 2025”; runner/label unknown | Test/report contracts exist; Windows C# versions are TBD in the current matrix | Windows Test-step, VSTest, and TI compatibility not proven | Qualify modern Test path; use Run/report fallback where unqualified | Runner/runtime/adapters, TI need, and “VS 2025” meaning | Qualification only; shared legacy work conditional | Medium | [Brief](gaps/06-mstest.md) |
-| Artifact Download | Task present; producer/build selection unknown | Workspace sharing and repository-backed handoff exist | Bamboo selection semantics need mapping | Workspace in-stage; immutable repository handoff across pipelines | Producer/build selection and repository contract | Qualification or <1 engineering week | Medium | [Brief](gaps/07-artifact-download.md) |
-| Git tag/commit/push/branch | Operations listed; policy unknown | Native checkout, Run, and scoped credentials exist | No governed mutation template yet | Native checkout plus Git-for-Windows template | Operations, signing, and branch policy | <1 engineering week | Medium | [Brief](gaps/08-git-operations.md) |
-| Xcode unlock keychain | Xcode 14.3; signing flow unknown | macOS Run and secret handling exist | No qualified signing template; no Windows equivalent | macOS ephemeral keychain template/runbook | Runner and signing workflow | Qualification or <1 engineering week | Medium | [Brief](gaps/09-xcode-keychain.md) |
-| Warnings parser | Task present; formats/UI unknown | Logs, artifacts, outputs, and Markdown annotation primitives exist | No qualified parser/template or structured warning UI | Parser template and summary; platform review only for native file/line UI | Formats, thresholds, and UI outcome | Discovery before estimate | Low | [Brief](gaps/10-warnings-parser.md) |
-| Artifactory Maven/Gradle | Tasks present; fields and Gradle versions unknown | Core source and Windows Dockerfiles exist; proxy/validation/output and release gaps remain | Known hardening plus customer qualification | Repair and qualify drone-artifactory | Exported fields, test tenant, output/retry need, image ownership | 1 to 2 weeks, shared | Medium | [Brief](gaps/11-artifactory-maven-gradle.md) |
-| Artifactory generic download | Task present; file specs/selectors unknown | Core download source exists; proxy/retry/thread/validation/output and release gaps remain | Known hardening plus customer qualification | Repair and qualify drone-artifactory download | File specs, retry/output need, and test tenant | Included in shared hardening | Medium | [Brief](gaps/12-artifactory-download.md) |
-| Artifactory npm/build-info | Legacy npm 5/6 values; operations unknown | Build-info exists; npm command and Node image do not | npm workflow contract missing | Candidate drone-artifactory extension with separate Node variant | Confirm npm operations cannot use bounded vendor-CLI template | 1 to 2 weeks after discovery | Medium | [Brief](gaps/13-artifactory-npm-build-info.md) |
-| Maven POM parser | Task present; extracted fields unknown | Version-only source and Windows Dockerfile exist; supported release unverified | Existing plugin emits only project.version | Qualify version-only or extend same plugin | Exact expressions and raw/effective behavior | Discovery before estimate | Low | [Brief](gaps/14-maven-pom-parser.md) |
-| Node.js tooling | All versions; exact Node pairs unknown | Governed Windows execution exists when the customer supplies a compatible image | No Harness-maintained Windows Node matrix | Shared Windows image plus native Run templates/cache | One actual Node/npm POC pairing and native-module check | Included in one shared engineering week of image development; not additive | Medium | [Brief](gaps/15-nodejs.md) |
-| SQL | Task present; engine and semantics unknown | Governed Run execution exists; no selected client/integration | Database contract unknown | Engine-specific image/template first; plugin only if multi-engine need proven | Engine, auth, scripts, outputs | Discovery before estimate | Low | [Brief](gaps/16-sql-task.md) |
-| ScriptRunner Groovy | Generic task present; scripts unknown | Governed Windows execution exists when the customer supplies Groovy/JDK | No maintained image; possible Bamboo API coupling | Direct Groovy Run template; discover coupled scripts | One portable script and Groovy/JDK POC pairing | Included in one shared engineering week of image development; not additive | Medium | [Brief](gaps/17-scriptrunner-groovy.md) |
-| Cucumber reports | Task present; format and thresholds unknown | Native JUnit ingestion exists; plugin source is unqualified and defective | Threshold/parser outcome unknown | Native JUnit first; conditionally repair drone-cucumber | Format, gates, Jira behavior | Discovery before estimate | Low | [Brief](gaps/18-cucumber-reports.md) |
-| qTest | Task present; API/hierarchy unknown | Harness test reporting exists; no CI-side qTest publisher | qTest synchronization absent | Possible new plugin after API/test-tenant proof | Exported mapping, tenant, and ownership | Discovery before estimate | Low | [Brief](gaps/19-qtest.md) |
+Eight questions materially affect the POC. They cover blockers and sample plans, supported versus legacy versions, runtime sources and offline constraints, .NET workloads, test modes, Artifactory, result utilities, and qTest. See [customer-questions.md](customer-questions.md).
 
-## Cross-cutting workstreams
+## Explicitly outside CI scope
 
-The real planning units are:
+- SQL execution against configured databases is assigned to DB DevOps or CD. It can re-enter the CI plan only for confirmed test-fixture setup or build-time validation against an ephemeral test database. The ownership decision is recorded in [the SQL scope note](out-of-ci-scope/16-sql-task.md).
+- UrbanCode Deploy and XebiaLabs XL Deploy or Digital.ai Deploy are deployment products and belong to CD migration planning.
+- Veracode, Sonar, and Checkmarx are security and code-quality integrations. Their STO/security work is outside this CI capability plan even when a CI pipeline invokes them.
 
-1. A one-LTSC Windows image MVP for the finite Java, Node, and Groovy tool matrix.
-2. .NET Build Tools workload discovery and shared modern/legacy test qualification.
-3. Native pipeline/artifact orchestration and two governed templates for Git and macOS signing.
-4. One existing Artifactory plugin qualification/extension workstream.
-5. Existing POM and Cucumber plugin decisions after exact field/report discovery.
-6. Bounded warnings, SQL, and qTest proofs before implementation selection.
-7. Conditional product review only if native structured warning UI is a confirmed POC requirement.
+## Source and research note
 
-See [cross-cutting-plan.md](cross-cutting-plan.md) for estimates, dependencies, and non-double-counted work.
+There are 18 active capability briefs and 14 excluded source rows. Historical selection and original values are kept only in [selection-audit.md](selection-audit.md) and [source/input-metadata.md](source/input-metadata.md).
 
-## What we know now
+Primary local evidence was reviewed at these commits: `harness-core` `4b9442f9229a5f33d300dac097e0a1612c92a3ff`, `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, `drone-artifactory` `c5db420e97e7c23ce3723aac30deae5b3a714c1e`, `drone-nunit` `479806210a6e95b96bc24eefb9f3d41dd953ab4c`, `drone-cucumber` `a39f074aa8ee6e77e9f17495ace6dc2ab45fd778`, `drone-get-maven-version` `7df46f7c7975996af0ae149ec670f5cbbc65e51a`, `drone-ant` PR 1 `53b582d4abfbfb7ffb45561b3d42b7c9f468f310`, `ci-images` `9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc`, `bamboo-nodejs-plugin` source commit `9507e81d191890550da1940c175323d220d2418c`, and `bamboo-maven-pom-extractor-plugin` `83bd81c149de7b2ae562934700cd818347de3c57`.
 
-- Standard Maven, Ant, Node, Git, Groovy, and MSBuild commands do not by themselves justify custom plugins. Harness Run/Test steps provide the managed execution contract around the project or vendor tool.
-- harness-community/ci-images is a possible source location, but the reviewed repository has no Windows image lane or established support lifecycle.
-- drone-artifactory source implements core Maven, Gradle, download, build-info, direct auth, CA PEM, and Windows Dockerfile paths. Static review found RT proxy bypass, incomplete download retry/thread mapping, weak command validation, and no structured outputs. The workstream is repair plus qualification, and a supported published Windows release was not verified.
-- drone-get-maven-version source covers only project.version today; its Windows Dockerfile is not evidence of a supported release.
-- drone-cucumber is a useful starting point but has confirmed parsing/failure-semantics defects and no release qualification.
-- Harness has native Test/report contracts, but the current C# matrix lists Windows supported versions as TBD; Windows Test/TI and legacy runners require sample-based qualification.
-- Xcode keychain operations belong on a macOS runner and have no Windows equivalent.
-- qTest is the only current new-plugin candidate because it performs structured result synchronization with an external system.
-
-## Configuration examples and current status
-
-These references show the native configuration model without implying that the proposed Windows images or plugin repairs are already delivered.
-
-| Capability | Example/reference | Current status |
-| --- | --- | --- |
-| Windows Run step | [Harness Windows CI guide](https://developer.harness.io/docs/continuous-integration/development-guides/ci-windows/) | Available when a compatible customer/project image and Windows infrastructure are supplied |
-| Test step and report paths | [Harness Test step configuration](https://developer.harness.io/docs/continuous-integration/use-ci/run-tests/tests-v2/) and [test report reference](https://developer.harness.io/docs/continuous-integration/use-ci/run-tests/test-report-ref/) | Native contracts exist; C# Windows versions and TI remain TBD/qualification |
-| Artifact handoff | [Share CI data across steps/stages](https://developer.harness.io/docs/continuous-integration/use-ci/caching-ci-data/share-ci-data-across-steps-and-stages/) and [upload to JFrog](https://developer.harness.io/docs/continuous-integration/use-ci/build-and-upload-artifacts/upload-artifacts/upload-artifacts-to-jfrog/) | Workspace/repository patterns are available; Bamboo selection mapping is customer-specific |
-| Git write operations | [Codebase Persist Credentials setting](https://developer.harness.io/docs/continuous-integration/use-ci/codebase-configuration/create-and-configure-a-codebase/) and [GitHub App token pattern](https://developer.harness.io/docs/continuous-integration/secure-ci/github-app-token-in-harness/) | Native credentials/Run primitives exist; governed mutation template is proposed |
-| macOS keychain/signing | [Harness iOS CI guide](https://developer.harness.io/docs/continuous-integration/development-guides/mobile/ios/) | macOS commands and secret pattern exist; reusable template and Xcode 14.3 runner need qualification |
-| Artifactory Maven/download | [Maven Plugin-step example at the reviewed commit](https://github.com/drone-plugins/drone-artifactory/blob/c5db420e97e7c23ce3723aac30deae5b3a714c1e/docs/MAVEN_README.md) and [download example](https://github.com/drone-plugins/drone-artifactory/blob/c5db420e97e7c23ce3723aac30deae5b3a714c1e/docs/DOWNLOAD_README.md) | Source examples exist; mandatory repair, supported publication, and Windows customer qualification remain |
-
-## What we still need from the customer
-
-The original email confirms the inventory and broad Windows/version context but not exact task configuration. The deduplicated P0/P1 questions and requested evidence package are in [customer-questions.md](customer-questions.md).
-
-## Evidence baseline
-
-- Harness code: harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff
-- Harness docs: developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a
-- Harness UI searched: harness-core-ui at 23fd2e57e040d7c52598dbb0362ae2f5df4333df
-- Existing plugin: drone-artifactory at c5db420e97e7c23ce3723aac30deae5b3a714c1e
-- Community sources: ci-images 9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc; drone-cucumber a39f074aa8ee6e77e9f17495ace6dc2ab45fd778; drone-get-maven-version 7df46f7c7975996af0ae149ec670f5cbbc65e51a; drone-ant PR 1 commit 53b582d4abfbfb7ffb45561b3d42b7c9f468f310
-
-No implementation or product repository changes are part of this plan.
-# bamboo-harness-ci-gap-plan
+No implementation or product repository change is part of this planning pack.

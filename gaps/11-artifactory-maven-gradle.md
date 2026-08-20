@@ -1,119 +1,100 @@
-# Artifactory Maven and Gradle build
+# Artifactory Maven and Gradle builds
 
-| Field | Value |
-| --- | --- |
-| Bamboo plugin key | bamboo-artifactory-plugin:maven3Task, bamboo-artifactory-plugin:artifactoryGradleTask |
-| Provider | JFrog |
-| Customer version(s) | Customer Maven matrix; Gradle version not provided |
-| Harness CSV status | No |
-| Scope | CI, existing plugin qualification |
-| Recommended Harness approach | Harden and qualify the existing drone-artifactory Maven/Gradle paths on Windows Kubernetes |
-| Solution type | F. Existing plugin extension and repair |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+## Customer need
 
-## 1. What this Bamboo task does
+The customer uses JFrog's Bamboo Maven 3 and Gradle tasks to resolve dependencies from Artifactory, deploy artifacts, and associate module/dependency data with build-info. The active repositories, build identity, Maven/Gradle versions, wrappers, tasks/goals, capture settings, and publish sequence are unknown.
 
-JFrog's Bamboo tasks run Maven or Gradle with Artifactory configured as resolver and deployer, then collect and publish build-info. The integration adds repository configuration, authentication, module/dependency metadata, environment capture, and build identity around the build tool.
+This is a structured repository integration, not only a language build command.
 
-This is more than a generic build command because Artifactory build-info and repository resolution are structured integration behavior.
+## What Bamboo provides
 
-## 2. How it works in Bamboo
+JFrog's Bamboo plugin selects a Maven/Gradle environment, configures Artifactory resolvers and deployers, runs the build tool, collects dependency/artifact metadata, and publishes or stages build-info according to task configuration.
 
-Bamboo job → JFrog Maven/Gradle task → selected build tool plus Artifactory configuration → dependency resolution/build/deploy → JFrog build-info publication → task result.
+```text
+JFrog Bamboo task
+-> tool and Artifactory resolver/deployer configuration
+-> Maven or Gradle build
+-> artifacts and dependency metadata
+-> Artifactory build-info
+```
 
-Material inputs include Artifactory server, resolver/deployer repositories, credentials, build name/number, modules, POM/build file, goals/tasks, properties, and build-info publication options.
+JFrog documentation exposes the task behavior; implementation source for the Bamboo plugin was not located publicly. Exported customer fields are required for exact parity.
 
-## 3. How the customer uses it
+## Harness today
 
-Confirmed customer usage: the inventory includes Maven and Gradle Artifactory build tasks. Maven follows the broad JDK/Maven estate; no Gradle versions, repositories, file specs, build-info fields, or environment constraints are provided.
+`drone-artifactory` already implements Maven, Gradle, JFrog CLI repository commands, build-info operations, direct username/password/token authentication, PEM CA inputs, and Windows Dockerfiles. The LTSC 2022 image currently bundles JFrog CLI 2.115.0, Temurin 17.0.19, Maven 3.9.11, and Gradle 8.13. It supports Maven and Gradle wrapper flags.
 
-Typical plugin capability: resolve and deploy packages while publishing Artifactory build metadata.
+Static review at `c5db420e97e7c23ce3723aac30deae5b3a714c1e` found required repairs: Maven/Gradle and other RT command paths can return before applying `enable_proxy`; invalid or empty command/tool combinations can complete without a useful error; structured Harness outputs are absent; Dockerfile downloads are not checksum-verified. The Harness Plugin-step `connectorRef` authenticates the plugin image pull, not JFrog. JFrog credentials still require explicit secret-backed settings.
 
-Customer usage context: not confirmed from the available source material.
+## Gap
 
-Smallest question: Which Maven/Gradle task fields, repositories, build-info operations, wrappers, and JFrog server version are present in the exported plans?
+The existing source is the correct base, but it is not yet a supported customer-ready Windows release. Its bundled JDK/Maven/Gradle pair is narrower than the customer estate, and its validation, proxy, release, provenance, and output behavior need repair and qualification.
 
-## 4. What Harness supports today
+## Recommended approach
 
-The existing drone-artifactory repository source implements Maven and Gradle commands, dependency/build-info behavior, direct authentication settings, CA PEM handling, thread settings, project/module metadata, scan, promotion, and cleanup.
+Recommendation: repair and qualify `drone-artifactory`, and align its build-tool selection with the shared Java toolchain strategy instead of creating many Artifactory image variants.
 
-At reviewed commit c5db420e97e7c23ce3723aac30deae5b3a714c1e it also has Windows 1809, LTSC 2022, and LTSC 2025 Dockerfiles containing pinned JFrog CLI 2.115.0, Temurin JDK 17.0.19, Maven 3.9.11, and Gradle 8.13. This proves Windows packaging source exists, but a supported published Windows release, ownership, SBOM/signing, and release qualification were not verified. Static review also found that the RT command path returns before PLUGIN_ENABLE_PROXY maps Harness proxy variables, has no command-level retry mapping, can accept invalid command/tool combinations without a validation error, and writes no structured Harness output.
+For the POC, use its LTSC 2022 path or a customer-derived image only for the representative supported JDK/tool combination. Prefer `mvnw.cmd` and `gradlew.bat`. If exact Java selection becomes part of the plugin contract, call the shared resolver; do not package three Windows variants merely because Dockerfiles exist.
 
-The CSV says No because a field-level mapping and customer-environment Windows Kubernetes qualification have not been established, not because the integration is absent.
+Required core work: strict command/tool validation, proxy mapping on every path, secret-safe diagnostics, checksum-verified packaging, selected structured outputs, release automation, Windows smoke/E2E tests, and documentation that distinguishes registry connector auth from JFrog credentials.
 
-## 5. The actual gap
+## POC experience
 
-The gap combines known hardening with customer qualification: proxy wiring for RT commands, command/tool validation, structured outputs if required, command-level retry semantics if required, Windows quoting, JFrog endpoints, wrappers/tool versions, private CA, and Bamboo field mapping.
+Proposed plugin inputs, not final Harness YAML:
 
-The bundled JDK/Maven/Gradle versions are fallbacks. Customer repositories should use mvnw.cmd and gradlew.bat when possible to avoid forcing every historical build-tool version into the plugin image.
+```yaml
+buildTool: mvn
+command: build
+url: https://company.jfrog.io/artifactory
+credentialsSecret: jfrog-ci
+useWrapper: true
+goals: clean verify
+resolverRepositories:
+  releases: libs-release
+  snapshots: libs-snapshot
+deployerRepositories:
+  releases: libs-release-local
+  snapshots: libs-snapshot-local
+buildName: product-ci
+buildNumber: <+pipeline.sequenceId>
+publishBuildInfo: true
+```
 
-## 6. Recommended Harness solution
+Run one successful and one failing Maven or Gradle build against a non-production JFrog project through the customer's proxy/CA path.
 
-Recommendation: repair the mandatory RT proxy and command-validation defects, implement only the accepted retry/output contract, then qualify the existing drone-artifactory plugin on the agreed Windows Kubernetes baseline.
+## Productized direction
 
-The customer configures a Harness Plugin step with an image-registry connector for pulling the plugin image plus JFrog endpoint/auth settings sourced from Harness secrets. Other settings cover build tool, wrapper or executable, goals/tasks, repositories, build identity, modules, project, CA/proxy, and desired build-info behavior. Harness manages the step lifecycle, secret injection, logs, timeout, and failure strategy; plugin outputs and command-level retries must be implemented explicitly.
+Publish signed Windows images for selected LTSC baselines with a documented JFrog CLI and tool compatibility matrix. Prefer repository wrappers and a shared verified Java resolver for broader supported versions. Add outputs such as build name/number, build-info identifier or URL when the JFrog CLI provides it, artifact summary, and terminal status.
 
-Engineering work is the known proxy/validation/output hardening, configuration mapping, image-digest selection, E2E fixtures, certificate/proxy qualification, documentation, and release evidence. We should not build a second Artifactory plugin. Result: one integration codebase covers Maven/Gradle and shares packaging and test infrastructure with the generic-download row.
+The supported release must have repository ownership, CI tests, SBOM/signing, vulnerability response, and JFrog test-tenant coverage.
 
-## 7. Proposed implementation shape
+## Discovery required
 
-- Existing repository: drone-plugins/drone-artifactory at c5db420e97e7c23ce3723aac30deae5b3a714c1e.
-- Already implemented: Maven, Gradle, download, dependencies, build-info, promotion, cleanup, direct auth settings, CA PEM handling, and Windows-aware paths.
-- Known repair: RT proxy mapping, invalid command/tool validation, structured outputs if accepted, and command-level retry behavior if required.
-- Preferred build tools: repository wrappers; pinned image fallbacks for agreed versions.
-- Qualification matrix: one LTSC baseline first, Maven and Gradle fixtures, Windows paths, private CA, proxy, build-info, module/project fields, retry/failure behavior, and outputs.
-- Potential extension gate: only missing Bamboo fields proven active in exported tasks.
-- Packaging: use current Windows images as evidence, but confirm publication, registry ownership, signatures/SBOM, and supported tags.
+- Export Maven/Gradle task fields, including repositories, build-info flags, env capture, project/module, and publish sequence.
+- Which Maven/Gradle/JDK pairs and wrappers block the POC?
+- Which JFrog version, authentication, proxy/private CA, and test tenant are available?
+- Which outputs or detailed summaries are consumed by later steps?
 
-## 8. Discovery needed
+## Validation
 
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Which JFrog server version, repositories, and auth model are used? | Defines compatibility and tenant setup. | Customer |
-| Are mvnw.cmd and gradlew.bat used? | Determines tool-version packaging needs. | Customer |
-| Which build-info fields, modules, scans, promotion, or cleanup operations are required? | Defines qualification versus extension. | Customer |
-| Are private CA and outbound proxy mandatory? | Required for Windows E2E acceptance. | Customer |
+Verify dependency resolution, deployment, Maven and Gradle wrapper paths, direct tool path if active, exact Java identity, build-info modules/dependencies/artifacts, snapshot/release repositories, failed build behavior, proxy/private CA, bad credentials, cancellation, retries, paths with spaces, output values, and secret masking. Compare the published build-info with Bamboo.
 
-## 9. Validation plan
+## Effort and ownership
 
-Run representative Maven and Gradle projects on the target Windows Kubernetes node. Resolve private dependencies, deploy a non-production package if in scope, publish build-info, verify modules/dependencies/environment masking, exercise wrappers and paths with spaces, and test private CA, proxy, bad credentials, retryable network failure, and duplicate build numbers. Compare resulting Artifactory build metadata with Bamboo output.
+- Core repair and one Windows POC qualification: 1 to 2 engineering weeks.
+- Product release/lifecycle work may add 1 to 2 weeks depending on existing registry automation.
+- Likely ownership: CI + HAR; JFrog is the external compatibility dependency.
 
-## 10. Dependencies and risks
+## What we can tell the customer
 
-- Blocking: JFrog test tenant, customer task exports, and non-production credentials.
-- Planning: the bundled JDK 17/tool versions do not cover the stated Java estate.
-- Implementation: docs/input-name drift, Windows quoting, CA/proxy, and registry publication.
-- Long-term maintenance: JFrog CLI and Windows base-image updates.
+- Harness already has an Artifactory plugin codebase with Maven, Gradle, build-info, CA, and Windows paths.
+- The plan is to repair and qualify that plugin, not build a duplicate.
+- The POC will target one Windows LTSC and actual build-tool pairing, with wrappers preferred.
+- JFrog credentials remain explicit Harness secrets; the plugin image connector is not JFrog authentication.
 
-## 11. Planning estimate
+## Sources
 
-1 to 2 engineering weeks for the shared bounded Artifactory hardening and Windows qualification workstream, assuming one LTSC baseline, a JFrog test tenant, representative Maven/Gradle projects, and no broad output schema. Count this once with generic download. Additional Bamboo semantics require a separate estimate.
-
-## 12. What we can tell the customer now
-
-- Existing Artifactory plugin source implements the core Maven and Gradle workflows and includes Windows Dockerfiles; known proxy/validation/output gaps, supported publication, and customer qualification remain open.
-- The current need is to harden and qualify that codebase, not create a second integration.
-- Repository wrappers are the preferred way to preserve project-specific Maven and Gradle versions.
-- We need the exported JFrog task fields and a test tenant before confirming field coverage.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 20.
-
-### Bamboo/vendor
-
-- [JFrog: Bamboo Artifactory plug-in](https://docs.jfrog.com/integrations/docs/bamboo-artifactory-plug-in)
-- [JFrog: About build-info](https://docs.jfrog.com/integrations/docs/about-build-info)
-- [JFrog: Maven Artifactory plugin](https://docs.jfrog.com/integrations/docs/maven-artifactory-plugin)
-- [JFrog: Gradle Artifactory plugin](https://docs.jfrog.com/integrations/docs/artifactory-gradle-plugin)
-
-### Harness
-
-- drone-artifactory at c5db420e97e7c23ce3723aac30deae5b3a714c1e: plugin/plugin.go, plugin/rt_commands.go, plugin/mvn.go, plugin/gradle.go, docker/Dockerfile.windows.amd64.ltsc2022
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/PluginStepInfo.java
-
-Confidence: Medium.
+- [JFrog Bamboo Artifactory plugin](https://docs.jfrog.com/integrations/docs/bamboo-artifactory-plug-in)
+- [JFrog build-info](https://docs.jfrog.com/integrations/docs/about-build-info)
+- [`drone-artifactory` at `c5db420e97e7c23ce3723aac30deae5b3a714c1e`](https://github.com/drone-plugins/drone-artifactory/tree/c5db420e97e7c23ce3723aac30deae5b3a714c1e)
+- Harness local evidence: `harness-core` `4b9442f9229a5f33d300dac097e0a1612c92a3ff`, `PluginStepInfo.java`.

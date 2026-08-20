@@ -1,119 +1,79 @@
-# Repository tag, commit, push, and branch
+# Repository commit, push, tag, and branch operations
 
-| Field | Value |
-| --- | --- |
-| Bamboo plugin key | plugins.vcs:task.vcs.tagging, plugins.vcs:task.vcs.commit, plugins.vcs:task.vcs.push, plugins.vcs:task.vcs.branching |
-| Provider | Bamboo native |
-| Customer version(s) | Not provided |
-| Harness CSV status | No |
-| Scope | CI governed reusable template |
-| Recommended Harness approach | Native checkout plus a governed Git-for-Windows Run step template |
-| Solution type | D. Reusable Harness template |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+## Customer need
 
-## 1. What this Bamboo task does
+The customer creates branches or tags, commits generated changes, and pushes repository refs from CI. The active operations, write identity, signing, branch protection, Git LFS, and concurrency policy are unknown.
 
-These tasks mutate a source repository after checkout: create a branch or tag, commit generated changes, and push refs. Bamboo wraps standard VCS operations with repository context and credentials.
+The important outcome is a governed authenticated mutation with clear provenance and safe rerun behavior.
 
-The meaningful requirements are authenticated writes, safe ref selection, auditability, and predictable failure behavior.
+## What Bamboo provides
 
-## 2. How it works in Bamboo
+Bamboo source-control tasks operate on a selected/default checked-out repository and reuse Bamboo repository credentials. The commit task commits modified files and pushes. Push can publish existing, custom, signed, or merge commits and can push multiple commits transactionally. Branch/tag tasks create a ref from the latest checkout commit and push it. Official docs also describe Git LFS support.
 
-Bamboo checkout → VCS mutation task → configured repository and credentials → tag/branch/commit/push → remote response and task status.
+```text
+Bamboo checkout and repository context
+-> branch/tag/commit/push task
+-> stored repository credentials
+-> remote ref mutation and task result
+```
 
-Material inputs include operation, ref name, commit message, author identity, remote, credentials, and sometimes working copy changes. Server branch protection and permissions still apply.
+## Harness today
 
-## 3. How the customer uses it
+Harness has native codebase checkout, optional persisted credentials, secret/connectors, GitHub App token patterns, Run steps, failure strategies, and reusable templates. Git for Windows performs the actual mutation.
 
-Confirmed customer usage: the inventory groups tagging, commit, push, and branching tasks. No remote, signing, LFS, generated-file, or branch-policy detail is included.
+## Gap
 
-Typical plugin capability: create release tags, commit version changes, create release branches, or push build-generated updates.
+Harness lacks a single governed template that exposes only approved mutations and preserves Bamboo's convenient repository/credential context. An arbitrary inline Git script would work technically but could duplicate credential handling, validation, signing, and retry policy.
 
-Customer usage context: not confirmed from the available source material.
+## Recommended approach
 
-Smallest question: Which exact operations and remotes are used, and do they require signed tags, force-push, LFS, submodules, or protected-branch bypass?
+Recommendation: provide a versioned Git-for-Windows Run template, not a new Git plugin, for the selected operations.
 
-## 4. What Harness supports today
+The template validates operation and ref names, checks the expected base SHA, configures a short-lived identity, uses either persisted checkout credentials or a separate scoped token, avoids logging secrets, and fails on non-fast-forward or signing errors. It must never silently force-push. A product step is only justified later if structured repository write policy and outputs cannot be expressed safely in a template.
 
-Harness has native Clone Codebase/Git clone behavior and connector-managed credentials. The codebase configuration includes Persist Credentials for later Git operations when the clone identity is intentionally write-enabled. Git for Windows can perform standard mutations in a Run step. Harness also documents a short-lived GitHub App token plugin and a Git revert plugin, confirming a separate least-privilege write-token path and specialized operations.
+## POC experience
 
-RunStepInfo verifies that the step contract manages environment, secrets, outputs, reports, resources, image, shell, and failure lifecycle. The command is governed pipeline configuration, not an unmanaged execution channel.
+Proposed template inputs, not final Harness YAML:
 
-The CSV says No because there is no one native task type covering all four mutations. The underlying secure workflow does not require a new binary plugin.
+```yaml
+operation: tag
+ref: release/1.2.3
+expectedSha: <+codebase.commitSha>
+message: Release 1.2.3
+sign: false
+pushMode: fast-forward-only
+```
 
-## 5. The actual gap
+Use a disposable repository to demonstrate one active operation, duplicate/rerun handling, protected branch behavior, and a deliberately rejected stale SHA.
 
-The gap is a reusable, policy-aware template that standardizes inputs, identity, credentials, ref validation, output variables, and audit logs on Windows. Specialized signed-tag or arbitrary-remote behavior may change the design.
+## Productized direction
 
-## 6. Recommended Harness solution
+Keep the template if the required behavior remains standard Git. Add typed outputs for pushed ref and SHA. Consider a first-class repository mutation step only if multiple customers require connector-level policy, server-side idempotency, or native signing/approval workflows beyond a template.
 
-Recommendation: use native checkout and a versioned Git-for-Windows Run template for approved tag, branch, commit, and push operations.
+## Discovery required
 
-The template exposes an allow-listed operation, ref, message, author, remote, and changed paths. It either uses deliberately persisted clone-connector credentials or accepts a separate short-lived write token from a Harness secret, emits the created commit/ref, masks credentials, and fails on remote rejection.
+- Which commit, push, branch, tag, merge, LFS, and signed-ref modes are active?
+- Which service identity and credential lifetime are approved?
+- What branch protection, concurrency, rerun, and force-push rules apply?
 
-Engineering work is template logic, guardrails, examples, and qualification. We should not build a generic Git plugin that hides standard Git behavior and server-side policy.
+## Validation
 
-Result: teams get a reusable platform pattern rather than copy-pasted commands, with native Harness RBAC, logs, secrets, and audit.
+Test success, duplicate tag/branch, no changes, stale base SHA, non-fast-forward, protected branch, token expiry, signing if required, LFS if active, cancellation, output SHA/ref, and secret masking. Confirm remote history matches Bamboo's intended result.
 
-## 7. Proposed implementation shape
+## Effort and ownership
 
-- Step: PowerShell Run step on an image containing a pinned Git for Windows.
-- Inputs: operation, branch/tag, source ref, remote allow-list, commit message, author, paths, push mode, signing mode.
-- Credentials: persisted clone credentials only when that identity is intentionally write-enabled; otherwise a short-lived GitHub App/token or approved SSH key. Never put credentials in remote URL output.
-- Outputs: resulting commit SHA and ref.
-- Guardrails: no force-push by default, reject unsafe ref names, explicit opt-in for protected operations, clean working-tree checks.
-- Validation: GitHub/GitLab/Bitbucket variant actually used by the customer.
+- POC and supported template: less than 1 engineering week for standard operations.
+- Likely ownership: CI + SCM/platform security.
 
-## 8. Discovery needed
+## What we can tell the customer
 
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Which operations and remotes are active? | Defines the template surface. | Customer |
-| Are signed commits/tags, LFS, submodules, or force-push required? | May need extra tooling or policy. | Customer |
-| What write credential model is approved? | Determines connector/token handling and rotation. | Customer / Security |
-| Which branch protections must remain enforced? | Defines negative tests and guardrails. | Customer |
+- Harness can perform authenticated repository writes through native checkout, secrets/connectors, and governed steps.
+- The POC will use a reusable policy-controlled template rather than copy Git commands into every pipeline.
+- Exact signing and branch policies must be confirmed before enabling writes.
 
-## 9. Validation plan
+## Sources
 
-Use a disposable repository under the customer's SCM policy. Create and push a branch and tag, commit an allowed generated file, verify outputs, and prove remote rejection and protected-branch behavior. Test paths with spaces, credentials masking, token expiry, retry after network failure, and cleanup.
-
-## 10. Dependencies and risks
-
-- Blocking: no approved write credential or disposable repository.
-- Planning: signed refs and arbitrary remotes materially expand scope.
-- Implementation: credentials leakage and Windows quoting.
-- Long-term maintenance: SCM provider token and branch-policy changes.
-
-## 11. Planning estimate
-
-<1 engineering week for the standard checked-out-repository case with unsigned branch/tag/commit/push. Discovery is required before estimating signing, LFS, or policy-bypass cases.
-
-## 12. What we can tell the customer now
-
-- Harness can perform governed repository mutations using native checkout and scoped write credentials.
-- A reusable template can standardize the experience and avoid pipeline-by-pipeline command maintenance.
-- Standard Git operations do not justify a new plugin.
-- We need the write operations, credential model, and branch policies before finalizing the template.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 14.
-
-### Bamboo/vendor
-
-- [Atlassian: Configuring a source control task](https://confluence.atlassian.com/bamboo1200/configuring-a-source-control-task-1680480921.html)
-- [actions/checkout documentation](https://github.com/actions/checkout/blob/main/README.md)
-
-### Harness
-
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/secure-ci/github-app-token-in-harness.md
-- [Harness: Create and configure a codebase](https://developer.harness.io/docs/continuous-integration/use-ci/codebase-configuration/create-and-configure-a-codebase/)
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/use-ci/codebase-configuration/git-revert-commit.md
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/platform/templates/run-step-template-quickstart.md
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/RunStepInfo.java
-
-Confidence: Medium.
+- [Atlassian source-control task](https://confluence.atlassian.com/bamboo1200/configuring-a-source-control-task-1680480921.html)
+- [Bamboo Specs task reference](https://docs.atlassian.com/bamboo-specs-docs/10.0.2/specs.html?yaml=)
+- [Harness codebase configuration](https://developer.harness.io/docs/continuous-integration/use-ci/codebase-configuration/create-and-configure-a-codebase/)
+- [Harness GitHub App token pattern](https://developer.harness.io/docs/continuous-integration/secure-ci/github-app-token-in-harness/)

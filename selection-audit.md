@@ -2,7 +2,7 @@
 
 Source: see [source/input-metadata.md](source/input-metadata.md).
 
-Selection rule: include only rows whose Harness classification contains `No` or `Partial` and whose scope affirmatively includes CI. Purely `Yes` rows and CD-only, deployment-only, or STO/security-only rows are excluded.
+Initial filter: select rows whose Harness classification contains `No` or `Partial` and whose supplied scope affirmatively includes CI. Then apply a product-ownership review so command executability alone does not turn a DB DevOps, CD, or STO capability into a CI commitment. Purely `Yes` rows and CD-only, deployment-only, STO/security-only, and database-operation-only rows are excluded.
 
 | Row | Bamboo task | Harness classification | Scope | Included? | Reason |
 | --- | --- | --- | --- | --- | --- |
@@ -34,7 +34,7 @@ Selection rule: include only rows whose Harness classification contains `No` or 
 | 27 | Veracode | Mixed: STO Yes / Windows No | STO / security - Windows discovery | No | Scope is STO/security only for this plan. |
 | 28 | IBM UrbanCode Deploy | No - re-platform to Harness CD | CD / deployment-specific - excluded from Windows CI | No | Scope explicitly excludes CI. |
 | 29 | XebiaLabs XL Deploy / Digital.ai Deploy | No - re-platform to Harness CD | CD / deployment-specific - excluded from Windows CI | No | Scope explicitly excludes CI. |
-| 30 | SQL task | No - Run step with DB client | CI - discovery / database tool image | Yes | No/Partial and CI is materially in scope. |
+| 30 | SQL task | No - Run step with DB client | Initially labeled CI - discovery / database tool image | No | Ownership review found that the documented task executes against a configured JDBC database. It belongs to DB DevOps or CD unless customer evidence shows an ephemeral CI test-fixture use. Research is preserved in `out-of-ci-scope/16-sql-task.md`. |
 | 31 | ScriptRunner Groovy | No - Run/Plugin step | CI - Windows image and reusable template | Yes | No/Partial and CI is materially in scope. |
 | 32 | Cucumber reports | No - Run/Plugin step | CI - native reporting or existing plugin qualification | Yes | No/Partial and CI is materially in scope. |
 | 33 | qTest | No - Run/Plugin step | CI / test management - discovery-gated plugin | Yes | No/Partial and CI is materially in scope. |
@@ -42,6 +42,7 @@ Selection rule: include only rows whose Harness classification contains `No` or 
 ## Result
 
 - Total source rows: 32
-- Included: 19
-- Excluded: 13
-- Briefs required: 19
+- Initial filter candidates: 19
+- Active CI briefs after ownership review: 18
+- Excluded: 14
+- Out-of-CI research notes: 1

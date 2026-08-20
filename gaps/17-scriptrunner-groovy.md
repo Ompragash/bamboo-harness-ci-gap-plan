@@ -1,117 +1,83 @@
-# ScriptRunner Groovy
+# ScriptRunner Groovy automation
 
-| Field | Value |
-| --- | --- |
-| Bamboo plugin key | groovyrunner:scriptrunner.generic |
-| Provider | Third party, ScriptRunner |
-| Customer version(s) | Not provided |
-| Harness CSV status | No |
-| Scope | CI, Windows image and reusable template |
-| Recommended Harness approach | Execute the existing Groovy file on a maintained Groovy/JDK image through a native Run template |
-| Solution type | C. Language or tool image |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+## Customer need
 
-## 1. What this Bamboo task does
+The customer has a generic ScriptRunner Groovy task. Without the scripts, it is unknown whether this is a portable build utility or code that calls Bamboo services, plan objects, variables, or administration APIs.
 
-ScriptRunner executes Groovy code inside or alongside Bamboo so teams can automate custom behavior not covered by standard tasks. Depending on the script, it may be a simple build utility or may call Bamboo internals and administration APIs.
+Portable scripts need Groovy, a compatible JDK, environment variables, and exit-code handling. Bamboo-coupled scripts need behavioral redesign, not only a Groovy runtime.
 
-The product was retired for Bamboo effective December 2022 and support ended in May 2023, which makes migration of active scripts important.
+## What Bamboo provides
 
-## 2. How it works in Bamboo
+ScriptRunner can execute Groovy inside or alongside Bamboo and may expose Bamboo application bindings and APIs. The product was retired in December 2022 and support ended in May 2023. Public implementation source for the exact generic task was not found, so script exports are the authoritative parity evidence.
 
-Bamboo job → ScriptRunner Groovy task → Groovy runtime with script and bindings → filesystem, tools, APIs, or external systems → console/output and task result.
+```text
+ScriptRunner task
+-> Groovy runtime plus possible Bamboo bindings
+-> customer script
+-> process result or Bamboo-side mutation
+```
 
-Material behavior is in each script. A script that only manipulates files differs from one using Bamboo Java APIs, Grape dependencies, credentials, or administrative state.
+## Harness today
 
-## 3. How the customer uses it
+Harness can run a Groovy file in a Windows Run step when the image supplies a compatible JDK and Groovy. Templates provide structured inputs, secrets, environment, logs, outputs, timeout, failure strategy, RBAC, and audit. Harness APIs, pipeline chaining/triggers, and outputs replace Bamboo-specific management or orchestration behaviors where needed.
 
-Confirmed customer usage: the generic ScriptRunner task is present. No scripts, Groovy/JDK versions, bindings, dependencies, Bamboo API calls, or outputs were supplied.
+## Gap
 
-Typical plugin capability: run arbitrary Groovy for custom CI logic.
+For portable scripts, the only gap is a trusted runtime and reusable invocation. A dedicated `groovy-task` plugin adds little. For scripts that import Bamboo classes or mutate Bamboo state, no generic plugin can make them portable; each behavior must map to a Harness pipeline primitive or API.
 
-Customer usage context: not confirmed from the available source material.
+## Recommended approach
 
-Smallest question: Provide the active Groovy scripts and identify any Bamboo-specific APIs, injected bindings, Grape dependencies, or private repositories they use.
+Recommendation: execute portable Groovy directly through a governed template and reuse the shared Java resolver only when runtime selection is required.
 
-## 4. What Harness supports today
+Do not create a Groovy plugin for simple script execution. Use a customer image in the POC. If multiple portable versions later justify product support, add Groovy archives as a bounded ToolSpec on top of the shared Java provider. Rewrite Bamboo-bound logic using Harness outputs, templates, chaining/triggers, or a reviewed Harness API client.
 
-Harness Run steps manage image, command, environment, secrets, outputs, reports, timeouts, and failure strategies. Apache Groovy runs directly on Windows with a JDK using the groovy executable.
+## POC experience
 
-The reviewed ci-images repository has no Windows Groovy image. The CSV says No because a maintained Windows Groovy/JDK runtime and migration template are missing, not because Groovy needs a task plugin.
+Proposed template inputs, not final Harness YAML:
 
-## 5. The actual gap
+```yaml
+java:
+  distribution: temurin
+  version: "17"
+groovy:
+  version: "4.0.28"
+scriptFile: ci/versioning.groovy
+arguments: [--mode, verify]
+outputFile: .harness/outputs.env
+```
 
-For portable scripts, the gap is a pinned Windows Groovy/JDK image and documented input/output convention. For scripts importing Bamboo classes or mutating Bamboo administration state, the gap is a functional rewrite against Harness APIs or pipeline constructs, which cannot be sized without reading the script.
+The example versions are illustrative. The POC selects one portable script, uses a customer-provided runtime image, and maps declared outputs to later Harness steps.
 
-## 6. Recommended Harness solution
+## Productized direction
 
-Recommendation: run portable scripts directly on a maintained Groovy/JDK image using a reusable Run step template, and separately refactor Bamboo-coupled scripts after code review.
+Keep the template as the product solution when scripts are portable. Add shared resolver support only for approved Groovy/JDK pairs and sources. Maintain Bamboo-to-Harness rewrite patterns for variables, plan dependency behavior, repository operations, and APIs. Do not attempt to emulate Bamboo Java services inside a plugin.
 
-The customer selects image, script path, arguments, working directory, secret inputs, and named output file. Harness provides versioning, secrets, logs, outputs, timeout, failure strategy, RBAC, and audit.
+## Discovery required
 
-Engineering packages pinned Groovy/JDK, adds smoke tests and an output convention, and documents Grape/private repository settings. We should not build a thin groovy-task plugin that only invokes the same runtime.
+- Provide the active Groovy scripts and identify Bamboo imports, bindings, filesystem assumptions, network calls, and required outputs.
+- Which Groovy/JDK pairs and Windows constraints block the POC?
+- Which scripts mutate Bamboo plans, variables, repositories, or deployments?
 
-Result: portable Groovy continues to run with a governed native experience, while genuine Bamboo API dependencies are visible migration items.
+## Validation
 
-## 7. Proposed implementation shape
+Classify each selected script as portable or Bamboo-bound. For one portable sample, verify runtime identity, arguments, environment/secrets, file paths, outputs, exit-code failure, network/proxy/CA, cancellation, and secret masking. For a coupled sample, compare the redesigned Harness outcome rather than byte-for-byte script execution.
 
-- Base: shared Windows Java image family when JDK and size permit; distinct Groovy tag/variant.
-- Contents: pinned JDK and Groovy; no customer dependencies or scripts.
-- Project-owned: .groovy files, libraries, Grape coordinates, and domain behavior.
-- Template inputs: script, arguments, workdir, environment/secrets, repository settings, output file, timeout, failure strategy.
-- Outputs: explicit Harness output file or variables; never scrape arbitrary logs.
-- Qualification: portable script, dependency resolution, proxy/CA, private repository, spaces, exit codes, cancellation, and secret masking.
+## Effort and ownership
 
-## 8. Discovery needed
+- Portable POC template: included in the 1 to 2 week shared toolchain workstream.
+- Coupled scripts: discovery required and estimated per behavior.
+- Likely ownership: CI for template; customer/application team for script semantics; Platform/API owner for approved replacements.
 
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Which Groovy/JDK versions are required? | Defines image tags and compatibility. | Customer |
-| Do scripts import Bamboo APIs or use injected Bamboo objects? | Determines direct execution versus rewrite. | Customer |
-| Are Grape or private dependencies used? | Requires repository, CA/proxy, and credentials. | Customer |
-| What values must later steps consume? | Defines a stable output contract. | Customer |
+## What we can tell the customer
 
-## 9. Validation plan
+- Portable Groovy scripts can run directly in a governed Harness step with a compatible JDK/Groovy runtime.
+- A Groovy plugin is unnecessary unless repeated runtime provisioning later justifies a shared contract.
+- Scripts coupled to Bamboo APIs will be mapped to Harness behavior rather than emulated.
+- The retired ScriptRunner dependency makes script export a priority.
 
-Classify every active script as portable, Bamboo-coupled, or administrative. Run one portable representative on Windows Kubernetes with exact arguments, dependencies, proxy/CA, paths with spaces, output capture, non-zero failure, cancellation, and secret masking. For coupled scripts, produce a behavior map and prove the replacement with a non-production target before migration.
-
-## 10. Dependencies and risks
-
-- Blocking: active scripts are unavailable.
-- Planning: generic task name reveals nothing about script behavior.
-- Implementation: Bamboo API coupling, Grape/private dependencies, and output conventions.
-- Long-term maintenance: retired source plugin and Groovy/JDK version lifecycle.
-
-## 11. Planning estimate
-
-1 to 2 engineering weeks is the required planning bucket, including qualification contingency. The development portion is included in one shared engineering week for Maven/Ant/Node/Groovy and is not additive by row. This assumes one actual Groovy/JDK pairing and reusable registry/build automation. Bamboo-coupled script rewrites and production lifecycle are not included.
-
-## 12. What we can tell the customer now
-
-- Harness supports governed Windows Run execution for portable Groovy when a compatible Groovy/JDK image is supplied; Harness does not currently provide the proposed maintained image.
-- A maintained Windows Groovy/JDK image gives a repeatable platform experience without a redundant plugin.
-- ScriptRunner for Bamboo is retired, so active scripts should be inventoried.
-- Any Bamboo API coupling must be identified before confirming migration effort.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 31.
-
-### Bamboo/vendor
+## Sources
 
 - [ScriptRunner for Bamboo retirement](https://www.scriptrunnerhq.com/atlassian-apps/bamboo/scriptrunner-for-bamboo)
 - [Apache Groovy installation](https://groovy-lang.org/install.html)
-- [Buildkite command step](https://buildkite.com/docs/pipelines/configure/step-types/command-step)
-
-### Harness
-
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/development-guides/ci-windows.md
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/platform/templates/run-step-template-quickstart.md
-- [harness-community/ci-images at 9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc](https://github.com/harness-community/ci-images/tree/9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc)
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/RunStepInfo.java
-
-Confidence: Medium.
+- [Harness Windows CI](https://developer.harness.io/docs/continuous-integration/development-guides/ci-windows/)
+- [Harness Run step templates](https://developer.harness.io/docs/platform/templates/run-step-template-quickstart/)

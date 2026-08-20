@@ -1,118 +1,94 @@
 # Ant
 
-| Field | Value |
+## Customer need
+
+The customer needs to run Ant builds on Windows. The active JDK, Ant version, build file, targets, environment, working directory, and JUnit report configuration have not been supplied.
+
+The desired outcome is a repeatable Java toolchain and task configuration, not merely the presence of `ant.exe` or a separate plugin for every target.
+
+## What Bamboo provides
+
+Bamboo's native Ant task selects configured Ant and JDK capabilities and makes them agent requirements. It accepts a build file, targets and arguments, environment or `ANT_OPTS`, working subdirectory, and JUnit result configuration.
+
+```text
+Bamboo Ant task
+-> agent with Ant and JDK capabilities
+-> build file and targets
+-> Ant outcome and optional JUnit results
+```
+
+Public Bamboo implementation source is not available without a commercial source license; official task documentation and Specs define the verified contract.
+
+## Harness today
+
+Harness can execute Ant in a Windows Run step and ingest JUnit results. The reviewed `ci-images` repository has no Windows lane. `drone-ant` PR 1 is an unmerged goals-only Go wrapper. Its LTSC 2022 Dockerfile installs JDK 8 and Ant through unpinned Chocolatey packages, and its checked-in empty-goals test does not pass. It lacks build-file, JDK, environment, working-directory, and report inputs.
+
+## Gap
+
+The missing experience is trusted Java/Ant selection and a reusable Ant-oriented contract. The PR does not preserve Bamboo's capability selection or report behavior, and duplicating Java provisioning inside an Ant-only plugin would create maintenance debt.
+
+## Recommended approach
+
+Recommendation: use a customer toolchain image and governed Ant template for the POC; productize a thin Ant contract only if repeated customer use justifies it, backed by the same Java resolver as Maven.
+
+| Option | Decision |
 | --- | --- |
-| Bamboo plugin key | plugins.ant:task.builder.ant |
-| Provider | Bamboo native |
-| Customer version(s) | Not provided |
-| Harness CSV status | No |
-| Scope | CI, Windows image and reusable template |
-| Recommended Harness approach | Maintained Windows Ant/JDK image with a reusable native Run step template |
-| Solution type | C. Language or tool image |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+| Fixed image | Good POC path for one or two Ant/JDK pairs; avoid a permanent cross-product matrix. |
+| Broad image | Rejected as the default because unrelated Node/.NET tools increase size and attack surface. |
+| Dedicated dynamic plugin | Conditional; useful only if it calls the shared Java resolver and adds structured Ant/report inputs. |
+| Hybrid | Preferred product shape if Ant volume warrants a contract. |
+| Customer image | Preferred legacy and POC fallback. |
 
-## 1. What this Bamboo task does
+## POC experience
 
-The task invokes Apache Ant targets for a Java build. Bamboo wraps the Ant executable with build-file, target, environment, working-directory, JDK capability, and failure configuration.
+Proposed template inputs, not final Harness YAML:
 
-Ant remains the build engine. The useful product layer is a predictable tool environment and repeatable task configuration.
+```yaml
+java:
+  distribution: temurin
+  version: "17"
+ant:
+  version: "1.10.15"
+buildFile: build.xml
+targets: [clean, test, package]
+reports: [build/test-results/*.xml]
+```
 
-## 2. How it works in Bamboo
+The POC can use the selected Ant and JDK already installed in a customer image. Harness controls environment, secrets, logs, timeout, failure strategy, template governance, and reports.
 
-Bamboo job → Ant task → selected Ant/JDK capability → build.xml targets → exit status and generated test reports.
+## Productized direction
 
-Material inputs include build file, targets, JVM and Ant options, environment, and working directory. A failed target fails the task. Reports are collected separately.
+If more than a template is justified, harden or supersede the existing PR with build file, targets, arguments, workdir, environment, JUnit paths, exact Ant version, and Java ToolSpec inputs. The implementation must call the shared resolver for Java, support approved mirrors/proxy/CA/checksums, and avoid `latest` or unpinned package installation.
 
-## 3. How the customer uses it
+Do not commit to a dedicated plugin until exported configurations show repeated structured behavior beyond a simple invocation.
 
-Confirmed customer usage: Ant appears in the inventory, but no Ant or JDK versions are listed.
+## Discovery required
 
-Typical plugin capability: run build.xml targets such as clean, compile, test, and package with configured properties.
+- Which Ant/JDK pairs and targets block the POC?
+- Are custom Ant distributions, tasks, launchers, or `ANT_HOME` layouts used?
+- Which build files, working directories, `ANT_OPTS`, and report globs are configured?
+- Are runtimes available only through an internal mirror?
 
-Customer usage context: not confirmed from the available source material.
+## Validation
 
-Smallest question: Which Ant/JDK versions, build file paths, targets, and ANT_OPTS are present in the exported plans?
+Run one representative build on the target LTSC node. Verify exact Ant/JDK identity, custom tasks, private dependency access, paths with spaces, environment, success/failure exit codes, JUnit counts, cold/warm cache behavior, cancellation, and secret masking.
 
-## 4. What Harness supports today
+## Effort and ownership
 
-Harness Run steps provide image, command, environment, secret, output, report, timeout, and failure controls. A reusable template can expose the same governed inputs without requiring a dedicated Ant task type.
+- POC: included in the 1 to 2 week shared toolchain workstream.
+- Product thin contract: 1 to 2 engineering weeks after the shared resolver exists and use is confirmed.
+- Likely ownership: CI; Platform owns resolver and release controls.
 
-The community drone-ant repository does not provide a released integration. At reviewed PR commit 53b582d, PR 1 accepts only goals, uses unpinned Chocolatey packages on LTSC 2022, and its checked-in empty-goals test fails. It does not cover the material Bamboo task inputs.
+## What we can tell the customer
 
-The CSV says No because no maintained Windows Ant/JDK image and qualified template are currently established.
+- Harness can run Ant and publish its test results on Windows with a compatible toolchain.
+- The POC will qualify the active Ant/JDK pair rather than promise every combination.
+- The existing community PR is not suitable as-is.
+- Any product plugin will share Java provisioning with Maven instead of duplicating it.
 
-## 5. The actual gap
+## Sources
 
-Harness can execute Ant today, but the customer lacks a maintained Windows tool environment and a reusable configuration contract. The open plugin PR does not close that gap reliably.
-
-## 6. Recommended Harness solution
-
-Recommendation: include Ant in the shared Windows Java image workstream and provide a reusable Run step template.
-
-The customer configures a pinned image, build file, targets, properties, working directory, reports, and secrets. Engineering adds pinned Ant/JDK packaging, checksums, smoke builds, Windows Kubernetes qualification, and template documentation.
-
-We should not adopt or build an Ant plugin whose principal action is only ant plus arguments. The existing PR should be revisited only if Product requires a Plugin-step user interface, and then it needs substantial hardening.
-
-Result: repeatable Ant execution with Harness-native governance and reporting on the agreed Windows matrix.
-
-## 7. Proposed implementation shape
-
-- Base: same agreed Windows LTSC family as Maven where JDK compatibility allows.
-- Contents: pinned JDK and Ant; no project libraries.
-- Tags: LTSC, JDK major, Ant version, and image revision.
-- Template inputs: image, build file, targets/arguments, properties, ANT_OPTS, workdir, reports, timeout, and failure strategy.
-- Project-owned: build.xml, custom tasks, Ivy configuration, and repository dependencies.
-- Qualification: a small Ant compile/test fixture, corporate CA/proxy, paths with spaces, secret masking, and failed target.
-
-## 8. Discovery needed
-
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Which Ant and JDK versions are active? | Defines the image and compatibility matrix. | Customer |
-| Are custom Ant tasks or Ivy used? | May require private repositories or project-supplied JARs. | Customer |
-| Is a native Run template acceptable? | Determines whether the incomplete plugin PR needs evaluation. | Customer / Product |
-
-## 9. Validation plan
-
-Run a representative build.xml on the target Windows Kubernetes node. Exercise custom properties, a path containing spaces, private dependency access, proxy/CA trust, JUnit output, failed targets, cancellation, and secret masking. Record the image digest and exact Ant/JDK versions.
-
-## 10. Dependencies and risks
-
-- Blocking: missing Ant/JDK and custom-task inventory.
-- Planning: a dedicated Plugin-step UI would add scope without changing build behavior.
-- Implementation: unpinned Chocolatey installation in the existing PR is not acceptable for a supported image.
-- Long-term maintenance: Java security updates and old custom Ant task compatibility.
-
-## 11. Planning estimate
-
-1 to 2 engineering weeks is the required planning bucket, including qualification contingency. The development portion is included in one shared engineering week for Maven/Ant/Node/Groovy and is not additive by row. This assumes one actual Ant/JDK pairing and reusable registry/build automation. Hardening drone-ant is separate and conditional if a Plugin-step contract is required.
-
-## 12. What we can tell the customer now
-
-- Harness supports governed Windows Run execution when a compatible Ant/JDK image is supplied; Harness does not currently provide the proposed maintained image.
-- The recommended gap closure is a maintained Windows Ant/JDK image and reusable template.
-- The open community Ant plugin is not currently release-ready.
-- We need the active Ant/JDK versions and any custom task dependencies before confirming the matrix.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 5.
-
-### Bamboo/vendor
-
-- [Atlassian: Ant](https://confluence.atlassian.com/display/BAMBOO/Ant)
-- [Atlassian: Configuring a builder task](https://confluence.atlassian.com/bamboo/configuring-a-builder-task-289277037.html)
-
-### Harness
-
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/development-guides/ci-windows.md
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/RunStepInfo.java
-- [harness-community/ci-images at 9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc](https://github.com/harness-community/ci-images/tree/9ffd880e4261a9565b92d8dfc9d45ca8912b0bdc)
-- [drone-ant PR 1 commit 53b582d4abfbfb7ffb45561b3d42b7c9f468f310](https://github.com/harness-community/drone-ant/commit/53b582d4abfbfb7ffb45561b3d42b7c9f468f310)
-- Repository audit at 53b582d4abfbfb7ffb45561b3d42b7c9f468f310: go test ./... failed the checked-in empty-goals case; go vet ./... and a Windows AMD64 cross-build passed.
-
-Confidence: Medium.
+- [Atlassian Ant task](https://confluence.atlassian.com/display/BAMBOO/Ant)
+- [Bamboo plugin source availability](https://developer.atlassian.com/server/bamboo/bamboo-plugin-guide/)
+- [`drone-ant` PR 1 commit `53b582d4abfbfb7ffb45561b3d42b7c9f468f310`](https://github.com/harness-community/drone-ant/commit/53b582d4abfbfb7ffb45561b3d42b7c9f468f310)
+- Harness local evidence: `developer-hub` `1c7c98f1d76bb7b8330d6ffba96f984878a32748`, Windows CI and report docs.

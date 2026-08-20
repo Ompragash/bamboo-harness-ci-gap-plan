@@ -1,117 +1,78 @@
-# Xcode unlock keychain
+# Xcode keychain and signing access
 
-| Field | Value |
-| --- | --- |
-| Bamboo plugin key | bamboo-xcode-plugin:unlockkeychain |
-| Provider | Bamboo native Xcode plugin |
-| Customer version(s) | Xcode 14.3 |
-| Harness CSV status | No |
-| Scope | macOS CI, outside Windows execution |
-| Recommended Harness approach | Reusable macOS keychain/signing runbook and Run step template |
-| Solution type | B. Existing native capability plus qualification |
-| Discovery required | Yes |
-| Planning confidence | Medium |
+## Customer need
 
-## 1. What this Bamboo task does
+The customer builds with Xcode 14.3 and needs signing tools to access a certificate/private key protected by a macOS keychain. The runner type, keychain source, certificate/profile import, timeout, signing identity, cleanup, and concurrency model are unknown.
 
-The task unlocks a macOS keychain so Xcode or codesign can access signing identities during an Apple build. Bamboo supplies a convenient task wrapper and secret handling around Apple's security command and keychain service.
+This capability is part of macOS CI. There is no Windows equivalent because Apple keychains and codesigning identities are provided by macOS Security.framework and Apple tooling.
 
-It is inherently macOS-specific. A keychain used for Xcode signing is part of Apple Security.framework and has no Windows counterpart.
+## What Bamboo provides
 
-## 2. How it works in Bamboo
+Bamboo's Xcode plugin supplies an Unlock Keychain task that wraps the macOS `security` command and secret handling so later Xcode or `codesign` invocations can access the signing identity.
 
-macOS Bamboo agent → unlock-keychain task → macOS security service and stored keychain → Xcode/codesign uses the identity → later cleanup or lock.
+```text
+macOS agent
+-> Bamboo unlock task with protected password
+-> user or temporary keychain unlocked
+-> Xcode/codesign reads identity
+```
 
-Material inputs are keychain path and password. A complete ephemeral signing flow can also import certificates, install provisioning profiles, adjust the keychain search list and partition list, then remove temporary material.
+The convenience is credential-safe setup in the correct runner context. The underlying keychain remains host-level macOS state.
 
-## 3. How the customer uses it
+## Harness today
 
-Confirmed customer usage: the inventory specifies Xcode 14.3 and the unlock-keychain task. This is a macOS CI requirement, not a Windows Kubernetes workload.
+Harness can execute macOS CI commands, inject secrets, use templates, and run the documented certificate/profile setup in an iOS pipeline. A Run step on a macOS runner can create or unlock a keychain, import a PKCS#12 identity, set search order and access controls, build/sign, and clean up.
 
-Typical plugin capability: unlock an existing keychain before build/signing.
+## Gap
 
-Customer usage context: not confirmed from the available source material.
+The gap is a qualified, reusable keychain lifecycle for the customer's Xcode 14.3 runner and signing model. Running keychain operations on a Windows Kubernetes node is impossible and would not make Xcode available. If the customer's primary CI infrastructure is Windows Kubernetes, a separate macOS execution pool must be part of the POC topology.
 
-Smallest question: Does the current job only unlock a pre-provisioned keychain, or also import certificates/profiles and delete temporary signing material?
+## Recommended approach
 
-## 4. What Harness supports today
+Recommendation: use a macOS runner and an ephemeral-keychain template with explicit create/import/unlock/use/cleanup phases.
 
-Harness documents macOS build infrastructure and direct Apple security commands for creating, unlocking, importing into, and listing a keychain. Harness secrets can supply certificate material and passwords, while a Run step manages logs, environment, timeout, failure strategy, and cleanup commands.
+Prefer a new per-execution keychain over unlocking a long-lived login keychain. Import the minimum identity, set a bounded timeout, make the keychain available only to required tools, avoid parallel reuse, and delete it in an always-run cleanup step. Keep certificate bytes, passwords, and provisioning data in Harness secrets or an approved secret store.
 
-The CSV says No because there is no dedicated unlock-keychain task type. The underlying operation is supported on macOS, and Windows cannot provide the Apple service regardless of plugin packaging.
+## POC experience
 
-## 5. The actual gap
+```text
+macOS runner with Xcode 14.3
+-> create temporary keychain
+-> import non-production signing certificate/profile
+-> configure search list and partition/access settings
+-> xcodebuild or codesign
+-> always lock and delete temporary keychain
+```
 
-The gap is a qualified, reusable signing setup/cleanup pattern with safe secret handling on the chosen macOS runner. It is not a missing Windows image or Windows plugin.
+Proposed template inputs, not final Harness YAML: Xcode runner selector, keychain name, PKCS#12 secret, password secret, provisioning profile secret/path, signing identity, timeout, and cleanup mode.
 
-Xcode 14.3 also constrains the macOS/Xcode runner image. That runner availability and certificate workflow need confirmation.
+## Productized direction
 
-## 6. Recommended Harness solution
+Publish a supported macOS signing template and runbook with secret-store patterns, runner isolation requirements, concurrency guidance, redacted diagnostics, and cleanup guarantees. A dedicated plugin is unnecessary unless native signing asset lifecycle or certificate-store integration becomes a broader product need.
 
-Recommendation: provide a versioned macOS Run step template and runbook for an ephemeral keychain and signing assets.
+## Discovery required
 
-The customer selects or creates a temporary keychain, passes encrypted certificate/profile material through Harness secrets, configures the search list, runs Xcode or Fastlane, and deletes the temporary keychain in cleanup.
+- Which macOS runner and Xcode 14.3 image are available?
+- Is the current flow unlocking an existing keychain or importing an ephemeral certificate/profile?
+- Which signing identity, profile, keychain timeout, concurrency, and cleanup behavior are required?
 
-Engineering work is qualification, safe log handling, template inputs, cleanup behavior, and an Xcode 14.3 runner check. We should not build a Windows plugin because it cannot implement Apple's keychain or codesign services.
+## Validation
 
-Result: a repeatable macOS signing workflow with Harness governance and minimal persistent secret material.
+Use non-production signing material. Verify identity discovery, signed artifact validation, wrong-password failure, missing profile, concurrent jobs, cancellation and always-run cleanup, redacted logs, keychain deletion, and no residual private key on the runner.
 
-## 7. Proposed implementation shape
+## Effort and ownership
 
-- Infrastructure: customer-managed or supported macOS runner with Xcode 14.3.
-- Steps: create temporary keychain if needed, unlock, import identity, install provisioning profile, set search/partition access, build/sign, always clean up.
-- Secrets: keychain password, certificate password, certificate/profile content.
-- Outputs: non-sensitive signing identity metadata and artifact path only.
-- Failure strategy: cleanup must run after build failure or cancellation where the runner supports it.
-- Runbook: pre-provisioned versus ephemeral modes, rotation, runner isolation, and log redaction.
+- POC: qualification only if runner and assets exist; less than 1 engineering week for a reusable template.
+- Likely ownership: CI + Platform/macOS infrastructure; signing assets remain customer-owned.
 
-## 8. Discovery needed
+## What we can tell the customer
 
-| Question | Why it matters | Who can answer |
-| --- | --- | --- |
-| Is the keychain pre-provisioned or created per build? | Defines setup and cleanup scope. | Customer |
-| Which certificate and provisioning-profile workflow is used? | Determines secret inputs and commands. | Customer |
-| Is Xcode 14.3 available on the target macOS runner? | Required for compatibility. | Customer / Engineering |
-| Must Fastlane or other signing tooling be included? | Changes the runtime and acceptance path. | Customer |
+- Harness can perform Xcode keychain and signing setup on a macOS runner with governed secrets and cleanup.
+- The POC needs a macOS execution pool even when the rest of CI runs on Windows Kubernetes.
+- An ephemeral keychain reduces shared-state and credential-residue risk.
 
-## 9. Validation plan
+## Sources
 
-On the chosen macOS runner, import a non-production signing identity from Harness secrets, unlock the keychain, sign a representative app with Xcode 14.3, verify the signature, and confirm the keychain/profile are removed after success and failure. Review logs for secret material and test runner reuse isolation.
-
-## 10. Dependencies and risks
-
-- Blocking: macOS runner and non-production signing material.
-- Planning: pre-provisioned and ephemeral keychains have different controls.
-- Implementation: secret leakage and cleanup after cancellation.
-- Long-term maintenance: Xcode/macOS image lifecycle and certificate rotation.
-
-## 11. Planning estimate
-
-Qualification only for an existing macOS runner and known signing flow. <1 engineering week for a reusable template/runbook after non-production credentials are available. Runner provisioning is separate.
-
-## 12. What we can tell the customer now
-
-- Xcode keychain operations must run on macOS because Windows has no Apple keychain or codesign service.
-- Harness can govern the signing workflow through native steps and secrets.
-- We recommend an ephemeral keychain pattern when the runner model allows it.
-- The exact keychain, certificate, profile, and Xcode runner setup still needs validation.
-
-## 13. Sources
-
-### Customer
-
-- Original email/table: Fwd: Re: Re: Windows/.NET CI/CD gaps in Harness impacting GBD migration, reviewed 2026-08-20.
-- Source inventory row 15.
-
-### Bamboo/vendor
-
-- [Apple: Keychain Access User Guide for Mac](https://support.apple.com/guide/keychain-access/kychn001/mac)
-- [Apple: What is a certificate?](https://support.apple.com/guide/keychain-access/whats-a-certificate-mchlp2697/mac)
-- [Apple Platform Security: Keychain data protection](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)
-
-### Harness
-
-- developer-hub at 2c5df07253e2046f97be4c47e7d323474a612e2a: docs/continuous-integration/development-guides/mobile/ios.md
-- harness-core at 4b9442f9229a5f33d300dac097e0a1612c92a3ff: 879-pipeline-ci-commons/src/main/java/io/harness/beans/steps/stepinfo/RunStepInfo.java
-
-Confidence: Medium.
+- [Apple Keychain Access guide](https://support.apple.com/guide/keychain-access/kychn001/mac)
+- [Apple Platform Security keychain protection](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)
+- [Harness iOS CI guide](https://developer.harness.io/docs/continuous-integration/development-guides/mobile/ios/)
