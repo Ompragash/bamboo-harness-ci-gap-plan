@@ -17,34 +17,43 @@ Bamboo checkout with repository credentials
 
 ## Harness implementation
 
-Recommendation: use a native Run step and governed template with an explicit Harness-maintained Windows utility image containing pinned Git for Windows. A Git plugin is not required.
+Recommendation: enable **Persist Credentials** on Harness **Clone Codebase**, then use the existing Windows-capable `harness/drone-git` image in a native Run step for the required commit, branch, tag, or push operation. No new Windows Git image or Git plugin is required.
 
-The template exposes only supported operations and validates the expected base SHA, ref name, signing mode, identity, and push policy. It uses the Harness codebase checkout and a scoped connector or short-lived token. It never logs credentials and does not allow silent force-push.
+Harness documents Persist Credentials specifically for Git commands such as tagging and pushing after clone. On Windows, the clone implementation copies its `_netrc` credentials to the build's shared credential location, and Harness restores them for later steps in the same build. The credentials are not retained after the build finishes.
 
 ```text
-Harness codebase checkout
--> Run step with explicit harness/windows-ci-utility:<ltsc> image
+Harness Clone Codebase with Persist Credentials enabled
+-> authenticated checkout and credentials retained for this build only
+-> Run step with a qualified harness/drone-git Windows image
 -> governed commit/tag/branch/push operation
 -> remote ref + SHA returned as Harness outputs
 ```
 
-Template inputs are operation, ref, expected SHA, commit/tag message, author identity, signing requirement, remote, and push mode. Standard Git behavior does not require a new Drone plugin. The pipeline references the utility image directly, and the versioned template provides the structured experience without copying commands into every pipeline.
+`harness/drone-git` is Harness's clone image, and its Windows variants already contain Git for Windows, Git LFS, OpenSSH, and PowerShell. It is not a separate commit/tag/push plugin; the later Run step uses the Git executable already present in that image. The POC must use a qualified image tag or digest that matches the Windows worker's LTSC version.
+
+A reusable Harness Run Step Template can provide the structured customer experience without duplicating commands in every pipeline. The template can expose operation, ref, expected SHA, commit/tag message, author identity, signing requirement, remote, and push mode while enforcing the customer's branch and force-push policies.
+
+Persist Credentials reuses the credential already configured on the selected codebase connector; it does not grant additional repository permissions or automatically select another identity. The selected connector's credential must therefore have the required write scope for the POC.
 
 ## What we still need to confirm
 
 - Which commit, merge, branch, tag, signing, and LFS operations are active?
-- Which write identity and credential type are approved?
 - What protected-branch, force-push, concurrency, and rerun rules apply?
+- Which Windows LTSC worker version will the POC use so Harness can qualify the matching `harness/drone-git` image tag or digest?
 
 ## Customer position
 
-- Harness can provide governed Git writes through a native Run step without duplicating scripts across pipelines.
-- Git for Windows will be packaged and maintained by Harness.
-- Repository credentials remain scoped Harness secrets/connectors.
+- Native Clone Codebase performs checkout and can persist its credentials for authenticated Git operations later in the same build.
+- Harness will reuse the existing Windows `harness/drone-git` image; the customer does not need a new custom Git image or a new Git plugin.
+- A governed Run Step Template can standardize Git writes without duplicating commands across pipelines.
+- Persisted credentials remain scoped to the build and retain only the permissions of the configured repository identity.
 - Force-push and signing behavior will follow the customer's repository policy.
 
 ## Sources
 
 - [Atlassian source-control task](https://confluence.atlassian.com/bamboo1200/configuring-a-source-control-task-1680480921.html)
 - [Harness codebase configuration](https://developer.harness.io/docs/continuous-integration/use-ci/codebase-configuration/create-and-configure-a-codebase/)
+- [Use codebase connector Git credentials in a CI Run step](https://developer.harness.io/docs/continuous-integration/ci-articles-faqs/articles/use-git-credentials-from-codebase-connector-in-ci-pipelines-run-step/)
+- [Harness CI images](https://developer.harness.io/docs/continuous-integration/use-ci/set-up-build-infrastructure/harness-ci/)
+- [Harness Cloud Windows build infrastructure](https://developer.harness.io/docs/continuous-integration/use-ci/set-up-build-infrastructure/use-harness-cloud-build-infrastructure/)
 - [Harness GitHub App token pattern](https://developer.harness.io/docs/continuous-integration/secure-ci/github-app-token-in-harness/)
